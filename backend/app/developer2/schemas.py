@@ -15,7 +15,7 @@ class FingerprintEvent(BaseModel):
     """
 
     model_config = ConfigDict(
-        extra="ignore"
+            extra="allow"
     )
 
     tenant_id: str = Field(
@@ -70,6 +70,14 @@ class FingerprintEvent(BaseModel):
         ge=0,
         le=100,
     )
+
+    source_ip: Optional[str] = Field(default=None, max_length=45)
+    geo_country: Optional[str] = Field(default=None, max_length=100)
+    geo_region: Optional[str] = Field(default=None, max_length=150)
+    geo_city: Optional[str] = Field(default=None, max_length=150)
+    geo_asn: Optional[str] = Field(default=None, max_length=32)
+    is_vpn_proxy: Optional[bool] = None
+    geo_confidence: Optional[float] = Field(default=None, ge=0, le=1)
 
 
 # ============================================================
@@ -161,6 +169,14 @@ class LiveFeedEvent(BaseModel):
         le=100,
     )
 
+    source_ip: Optional[str] = Field(default=None, max_length=45)
+    geo_country: Optional[str] = Field(default=None, max_length=100)
+    geo_region: Optional[str] = Field(default=None, max_length=150)
+    geo_city: Optional[str] = Field(default=None, max_length=150)
+    geo_asn: Optional[str] = Field(default=None, max_length=32)
+    is_vpn_proxy: Optional[bool] = None
+    geo_confidence: Optional[float] = Field(default=None, ge=0, le=1)
+
     data: Dict[str, Any] = Field(
         default_factory=dict
     )
@@ -202,7 +218,9 @@ class CorrelationResult(BaseModel):
 
     matched_fingerprints: List[int] = Field(
         default_factory=list
-    )from datetime import datetime
+    )
+
+from datetime import datetime
 from typing import Any, Dict, List, Optional
 
 from pydantic import BaseModel, ConfigDict, Field
@@ -219,7 +237,7 @@ class FingerprintEvent(BaseModel):
     """
 
     model_config = ConfigDict(
-        extra="ignore"
+        extra="allow"
     )
 
     tenant_id: str = Field(

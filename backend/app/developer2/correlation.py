@@ -12,6 +12,7 @@ from .models import (
     Dev2CampaignMember,
     Dev2Fingerprint,
 )
+from .geo import geo_match
 
 
 # ============================================================
@@ -276,11 +277,14 @@ def compare_fingerprint(
     similarity = calculate_similarity(
         distance
     )
+    location_match, location_bonus = geo_match(current, candidate)
 
     return {
         "fingerprint": candidate,
         "distance": distance,
-        "similarity": similarity,
+        "similarity": round(min(1.0, similarity + location_bonus), 4),
+        "geo_match": location_match,
+        "geo_bonus": location_bonus,
     }
 
 
@@ -473,6 +477,52 @@ def add_campaign_member(
 # UPDATE CAMPAIGN COUNTS
 # ============================================================
 
+def build_campaign_summary(
+    campaign: Dev2Campaign,
+    members: List[Dev2CampaignMember],
+) -> str:
+    """
+    Produce a concise human-readable summary of a campaign.
+
+    Stored on the campaign so SOC dashboards and generated
+    reports have a description without recomputing it.
+    """
+
+    tenants = sorted({
+        member.tenant_id
+        for member in members
+        if member.tenant_id
+    })
+
+    similarities = [
+        member.similarity
+        for member in members
+        if member.similarity is not None
+    ]
+
+    average_similarity = (
+        round(sum(similarities) / len(similarities), 4)
+        if similarities
+        else None
+    )
+
+    tenant_text = (
+        ", ".join(tenants)
+        if tenants
+        else "no tenants"
+    )
+
+    window = CORRELATION_WINDOW_MINUTES
+
+    return (
+        f"Correlated campaign spanning {len(tenants)} tenant(s) "
+        f"({tenant_text}) and {len(members)} email fingerprint(s) "
+        f"within a {window}-minute window. "
+        f"Average similarity "
+        f"{average_similarity if average_similarity is not None else 'n/a'}."
+    )
+
+
 def update_campaign_counts(
     db: Session,
     campaign: Dev2Campaign,
@@ -509,6 +559,11 @@ def update_campaign_counts(
 
     campaign.email_count = len(
         members
+    )
+
+    campaign.summary = build_campaign_summary(
+        campaign,
+        members,
     )
 
 

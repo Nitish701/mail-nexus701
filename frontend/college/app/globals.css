@@ -1,0 +1,9 @@
+html, body {
+  margin: 0;
+  padding: 0;
+  background: #f3f7fb;
+}
+
+* { box-sizing: border-box; }
+
+a { color: inherit; text-decoration: none; }

@@ -101,6 +101,14 @@ class Dev2Email(Base):
         index=True,
     )
 
+    source_ip = Column(String(45), nullable=True, index=True)
+    geo_country = Column(String(100), nullable=True)
+    geo_region = Column(String(150), nullable=True)
+    geo_city = Column(String(150), nullable=True)
+    geo_asn = Column(String(32), nullable=True)
+    is_vpn_proxy = Column(Integer, nullable=True)
+    geo_confidence = Column(Float, nullable=True)
+
     created_at = Column(
         DateTime(timezone=True),
         nullable=False,
@@ -178,6 +186,14 @@ class Dev2Fingerprint(Base):
         nullable=False,
         default="TLSH",
     )
+
+    source_ip = Column(String(45), nullable=True, index=True)
+    geo_country = Column(String(100), nullable=True)
+    geo_region = Column(String(150), nullable=True)
+    geo_city = Column(String(150), nullable=True)
+    geo_asn = Column(String(32), nullable=True)
+    is_vpn_proxy = Column(Integer, nullable=True)
+    geo_confidence = Column(Float, nullable=True)
 
     created_at = Column(
         DateTime(timezone=True),

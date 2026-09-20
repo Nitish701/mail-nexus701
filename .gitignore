@@ -7,6 +7,9 @@ __pycache__/
 .venv/
 venv/
 .vscode/
+node_modules/
+.next/
+.next-dev/
 
 # Local Cloudflare credentials
 *.json
@@ -15,4 +18,5 @@ venv/
 
 # Local logs and temporary files
 *.log
+*.db
 backend/tmp/

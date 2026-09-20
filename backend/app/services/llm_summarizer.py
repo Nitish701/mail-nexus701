@@ -8,7 +8,7 @@ from dataclasses import dataclass
 
 import httpx
 
-from app.config import GROQ_API_KEY, GROQ_MODEL, LLM_PROVIDER, OLLAMA_MODEL, OLLAMA_URL
+from app.config import GROQ_API_KEY, GROQ_MODEL, LLM_PROVIDER, LLM_TIMEOUT_SECONDS, OLLAMA_MODEL, OLLAMA_URL
 
 
 @dataclass
@@ -65,7 +65,7 @@ def _ollama_advisory(score: int, findings: list[str], body: str) -> AdvisoryResu
 				{"role": "user", "content": prompt},
 			],
 		},
-		timeout=0.35,
+		timeout=LLM_TIMEOUT_SECONDS,
 	)
 	response.raise_for_status()
 	data = response.json()["message"]["content"]
@@ -82,7 +82,7 @@ async def generate_threat_advisory(score: int, findings: list[str], body: str) -
 		return _fallback_advisory(score, findings)
 	try:
 		advisory_function = _ollama_advisory if provider == "ollama" else _groq_advisory
-		return await asyncio.wait_for(asyncio.to_thread(advisory_function, score, findings, body), timeout=0.45)
+		return await asyncio.wait_for(asyncio.to_thread(advisory_function, score, findings, body), timeout=LLM_TIMEOUT_SECONDS + 1)
 	except Exception:
 		return _fallback_advisory(score, findings)
 

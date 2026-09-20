@@ -1,0 +1,14 @@
+{
+  "name": "mail-nexus-frontend",
+  "private": true,
+  "workspaces": [
+    "college",
+    "central"
+  ],
+  "scripts": {
+    "dev:college": "npm --prefix college run dev",
+    "dev:central": "npm --prefix central run dev",
+    "build:college": "npm --prefix college run build",
+    "build:central": "npm --prefix central run build"
+  }
+}
