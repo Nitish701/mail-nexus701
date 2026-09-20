@@ -1,0 +1,9 @@
+# Named tunnel configuration for the local Mail-Nexus webhook.
+# Replace the placeholders before running a named tunnel.
+tunnel: REPLACE_WITH_TUNNEL_ID
+credentials-file: C:\Users\Nitis\.cloudflared\REPLACE_WITH_TUNNEL_ID.json
+
+ingress:
+  - hostname: mail-nexus-webhook.example.com
+    service: http://localhost:8000
+  - service: http_status:404
