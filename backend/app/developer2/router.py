@@ -15,6 +15,7 @@ from sqlalchemy.orm import Session
 from .broadcaster import broadcaster
 from .correlation import correlate_fingerprint
 from .database import get_db
+from .geo import enrich_ip
 from .models import (
     Dev2Campaign,
     Dev2CampaignMember,
@@ -80,6 +81,20 @@ async def submit_fingerprint(
         event.received_at
         or utc_now()
     )
+    source_ip = getattr(event, "source_ip", None)
+    supplied_country = getattr(event, "geo_country", None)
+    supplied_region = getattr(event, "geo_region", None)
+    supplied_city = getattr(event, "geo_city", None)
+    supplied_asn = getattr(event, "geo_asn", None)
+    supplied_vpn_proxy = getattr(event, "is_vpn_proxy", None)
+    supplied_confidence = getattr(event, "geo_confidence", None)
+    geo = await enrich_ip(source_ip)
+    geo_country = supplied_country or (geo.country if geo else None)
+    geo_region = supplied_region or (geo.region if geo else None)
+    geo_city = supplied_city or (geo.city if geo else None)
+    geo_asn = supplied_asn or (geo.asn if geo else None)
+    is_vpn_proxy = supplied_vpn_proxy if supplied_vpn_proxy is not None else (geo.is_vpn_proxy if geo else None)
+    geo_confidence = supplied_confidence if supplied_confidence is not None else (geo.confidence if geo else None)
 
     # --------------------------------------------------------
     # 1. Store normalized email
@@ -95,6 +110,13 @@ async def submit_fingerprint(
         received_at=received_at,
         risk_score=event.risk_score,
         status="RECEIVED",
+        source_ip=source_ip or (geo.source_ip if geo else None),
+        geo_country=geo_country,
+        geo_region=geo_region,
+        geo_city=geo_city,
+        geo_asn=geo_asn,
+        is_vpn_proxy=int(is_vpn_proxy) if is_vpn_proxy is not None else None,
+        geo_confidence=geo_confidence,
     )
 
     db.add(email)
@@ -122,6 +144,13 @@ async def submit_fingerprint(
         fingerprint_hash=event.fingerprint_hash,
         fingerprint_type=event.fingerprint_type,
         created_at=received_at,
+        source_ip=source_ip or (geo.source_ip if geo else None),
+        geo_country=geo_country,
+        geo_region=geo_region,
+        geo_city=geo_city,
+        geo_asn=geo_asn,
+        is_vpn_proxy=int(is_vpn_proxy) if is_vpn_proxy is not None else None,
+        geo_confidence=geo_confidence,
     )
 
     db.add(fingerprint)
@@ -196,6 +225,14 @@ async def submit_fingerprint(
                 event.fingerprint_type
             ),
             "subject": event.subject,
+            "geolocation": {
+                "country": geo_country,
+                "region": geo_region,
+                "city": geo_city,
+                "asn": geo_asn,
+                "is_vpn_proxy": is_vpn_proxy,
+                "confidence": geo_confidence,
+            },
         },
     )
 

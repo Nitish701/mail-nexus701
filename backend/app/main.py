@@ -1,9 +1,16 @@
 import asyncio
 import hmac
 
-from fastapi import FastAPI, HTTPException, Request
+from fastapi import Depends, FastAPI, HTTPException, Request
+from sqlalchemy.orm import Session
 
 from app.config import LAYER_TIMEOUT_SECONDS, MODEL_PATH, WEBHOOK_SECRET
+from app.developer2.database import Base, engine, get_db
+from app.developer2 import models as developer2_models
+from app.developer2.router import router as developer2_router, submit_fingerprint
+from app.developer2.schemas import FingerprintEvent
+from app.reports.router import router as reports_router
+from app.services import report_generator, report_store
 from app.engine.layer1_auth import validate_authentication
 from app.engine.layer2_heuristics import scan_heuristics
 from app.engine.layer3_ml import BodyTextModel
@@ -17,6 +24,9 @@ from app.schemas import Attachment, AuthenticationCheck, InboundEmailResponse, L
 app = FastAPI(title="Mail-Nexus API", version="0.1.0")
 MAX_EMAIL_BYTES = 25 * 1024 * 1024
 body_text_model = BodyTextModel(MODEL_PATH)
+Base.metadata.create_all(bind=engine)
+app.include_router(developer2_router)
+app.include_router(reports_router)
 
 
 async def _scan_static_with_budget(attachments) -> StaticScanResult:
@@ -33,7 +43,7 @@ async def health() -> dict[str, str]:
 
 @app.post("/api/v1/inbound", response_model=InboundEmailResponse)
 @app.post("/webhooks/email", response_model=InboundEmailResponse)
-async def inbound_email(request: Request) -> InboundEmailResponse:
+async def inbound_email(request: Request, db: Session = Depends(get_db)) -> InboundEmailResponse:
 	if WEBHOOK_SECRET:
 		authorization = request.headers.get("authorization", "")
 		expected = f"Bearer {WEBHOOK_SECRET}"
@@ -68,7 +78,7 @@ async def inbound_email(request: Request) -> InboundEmailResponse:
 	advisory = await generate_threat_advisory(base_score, all_findings, fingerprint.redacted_body)
 	advisory_json, advisory_csv = advisory_exports(advisory, base_score, parsed.message_id)
 
-	return InboundEmailResponse(
+	response = InboundEmailResponse(
 		message_id=parsed.message_id,
 		from_address=parsed.from_address,
 		to_addresses=parsed.to_addresses,
@@ -93,3 +103,33 @@ async def inbound_email(request: Request) -> InboundEmailResponse:
 		),
 		base_score=base_score,
 	)
+
+	try:
+		report_id = report_store.generate_report_id("email")
+		report = report_generator.build_email_report(response.model_dump(mode="json"), report_id)
+		report_store.save_report(db, report)
+		response.report_id = report_id
+	except Exception:  # Reporting must never block email ingestion.
+		pass
+
+	if base_score >= 20:
+		try:
+			await submit_fingerprint(
+				FingerprintEvent(
+					tenant_id=request.headers.get("x-mail-nexus-tenant-id", "organization"),
+					message_id=response.message_id,
+					sender=response.from_address,
+					recipient=response.to_addresses[0] if response.to_addresses else None,
+					subject=response.subject,
+					body=response.fingerprint.redacted_body,
+					fingerprint_hash=response.fingerprint.tlsh or response.fingerprint.body_sha256,
+					fingerprint_type="TLSH" if response.fingerprint.tlsh else "SHA256",
+					risk_score=base_score,
+				),
+				db,
+			)
+		except Exception:
+			# A correlation outage must not reject a successfully scanned email.
+			pass
+
+	return response

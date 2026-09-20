@@ -59,3 +59,4 @@ class InboundEmailResponse(BaseModel):
 	fingerprint: EmailFingerprint
 	threat_advisory: ThreatAdvisory
 	base_score: int = Field(ge=0, le=70)
+	report_id: str | None = None
