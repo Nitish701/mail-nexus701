@@ -1,0 +1,6 @@
+name = "mail-nexus-email-worker"
+main = "worker.js"
+compatibility_date = "2026-09-20"
+
+[vars]
+# Set WEBHOOK_URL and WEBHOOK_SECRET with `wrangler secret put` or your deployment environment.

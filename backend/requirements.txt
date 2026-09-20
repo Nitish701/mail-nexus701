@@ -1,0 +1,9 @@
+fastapi
+uvicorn[standard]
+httpx
+joblib
+xgboost
+redis
+yara-python
+py-tlsh
+groq
