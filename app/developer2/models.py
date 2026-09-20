@@ -1,0 +1,414 @@
+from datetime import datetime, timezone
+
+from sqlalchemy import (
+    Column,
+    DateTime,
+    Float,
+    ForeignKey,
+    Index,
+    Integer,
+    String,
+    Text,
+    UniqueConstraint,
+)
+
+from sqlalchemy.orm import relationship
+
+from .database import Base
+
+
+# ============================================================
+# Utility
+# ============================================================
+
+def utc_now() -> datetime:
+    """
+    Return timezone-aware UTC datetime.
+
+    All backend timestamps are stored in UTC.
+    Frontend can convert them to local time for display.
+    """
+    return datetime.now(timezone.utc)
+
+
+# ============================================================
+# EMAIL
+# ============================================================
+
+class Dev2Email(Base):
+    """
+    Stores normalized email metadata received from a tenant.
+
+    One Email has one Fingerprint.
+    """
+
+    __tablename__ = "dev2_emails"
+
+    id = Column(
+        Integer,
+        primary_key=True,
+        autoincrement=True,
+    )
+
+    tenant_id = Column(
+        String(100),
+        nullable=False,
+        index=True,
+    )
+
+    message_id = Column(
+        String(255),
+        nullable=True,
+        index=True,
+    )
+
+    sender = Column(
+        String(500),
+        nullable=True,
+    )
+
+    recipient = Column(
+        String(500),
+        nullable=True,
+    )
+
+    subject = Column(
+        Text,
+        nullable=True,
+    )
+
+    body = Column(
+        Text,
+        nullable=True,
+    )
+
+    received_at = Column(
+        DateTime(timezone=True),
+        nullable=False,
+        default=utc_now,
+        index=True,
+    )
+
+    risk_score = Column(
+        Float,
+        nullable=True,
+    )
+
+    status = Column(
+        String(50),
+        nullable=False,
+        default="NEW",
+        index=True,
+    )
+
+    created_at = Column(
+        DateTime(timezone=True),
+        nullable=False,
+        default=utc_now,
+    )
+
+    # --------------------------------------------------------
+    # Relationship
+    # --------------------------------------------------------
+
+    fingerprint = relationship(
+        "Dev2Fingerprint",
+        back_populates="email",
+        uselist=False,
+        cascade="all, delete-orphan",
+        passive_deletes=True,
+    )
+
+    # --------------------------------------------------------
+    # Composite indexes
+    # --------------------------------------------------------
+
+    __table_args__ = (
+        Index(
+            "ix_dev2_email_tenant_received",
+            "tenant_id",
+            "received_at",
+        ),
+    )
+
+
+# ============================================================
+# FINGERPRINT
+# ============================================================
+
+class Dev2Fingerprint(Base):
+    """
+    Stores the normalized fingerprint generated from an email.
+
+    The fingerprint is the object used by the correlation engine.
+    """
+
+    __tablename__ = "dev2_fingerprints"
+
+    id = Column(
+        Integer,
+        primary_key=True,
+        autoincrement=True,
+    )
+
+    email_id = Column(
+        Integer,
+        ForeignKey(
+            "dev2_emails.id",
+            ondelete="CASCADE",
+        ),
+        nullable=False,
+        unique=True,
+    )
+
+    tenant_id = Column(
+        String(100),
+        nullable=False,
+        index=True,
+    )
+
+    fingerprint_hash = Column(
+        String(500),
+        nullable=False,
+        index=True,
+    )
+
+    fingerprint_type = Column(
+        String(50),
+        nullable=False,
+        default="TLSH",
+    )
+
+    created_at = Column(
+        DateTime(timezone=True),
+        nullable=False,
+        default=utc_now,
+        index=True,
+    )
+
+    # --------------------------------------------------------
+    # Relationship
+    # --------------------------------------------------------
+
+    email = relationship(
+        "Dev2Email",
+        back_populates="fingerprint",
+    )
+
+    campaign_members = relationship(
+        "Dev2CampaignMember",
+        back_populates="fingerprint",
+        cascade="all, delete-orphan",
+        passive_deletes=True,
+    )
+
+    # --------------------------------------------------------
+    # Indexes
+    # --------------------------------------------------------
+
+    __table_args__ = (
+        Index(
+            "ix_dev2_fp_tenant_created",
+            "tenant_id",
+            "created_at",
+        ),
+    )
+
+
+# ============================================================
+# CAMPAIGN
+# ============================================================
+
+class Dev2Campaign(Base):
+    """
+    Represents a correlated multi-tenant email campaign.
+
+    A campaign is created when fingerprints from at least
+    two different tenants are correlated within the configured
+    correlation window.
+    """
+
+    __tablename__ = "dev2_campaigns"
+
+    id = Column(
+        Integer,
+        primary_key=True,
+        autoincrement=True,
+    )
+
+    campaign_id = Column(
+        String(100),
+        nullable=False,
+        unique=True,
+        index=True,
+    )
+
+    created_at = Column(
+        DateTime(timezone=True),
+        nullable=False,
+        default=utc_now,
+    )
+
+    first_seen = Column(
+        DateTime(timezone=True),
+        nullable=False,
+        index=True,
+    )
+
+    last_seen = Column(
+        DateTime(timezone=True),
+        nullable=False,
+        index=True,
+    )
+
+    tenant_count = Column(
+        Integer,
+        nullable=False,
+        default=0,
+    )
+
+    email_count = Column(
+        Integer,
+        nullable=False,
+        default=0,
+    )
+
+    status = Column(
+        String(50),
+        nullable=False,
+        default="ACTIVE",
+        index=True,
+    )
+
+    summary = Column(
+        Text,
+        nullable=True,
+    )
+
+    # --------------------------------------------------------
+    # Relationship
+    # --------------------------------------------------------
+
+    members = relationship(
+        "Dev2CampaignMember",
+        back_populates="campaign",
+        cascade="all, delete-orphan",
+        passive_deletes=True,
+    )
+
+    # --------------------------------------------------------
+    # Index
+    # --------------------------------------------------------
+
+    __table_args__ = (
+        Index(
+            "ix_dev2_campaign_status_last_seen",
+            "status",
+            "last_seen",
+        ),
+    )
+
+
+# ============================================================
+# CAMPAIGN MEMBER
+# ============================================================
+
+class Dev2CampaignMember(Base):
+    """
+    Connects a fingerprint to a campaign.
+
+    This table allows one campaign to contain fingerprints
+    originating from multiple tenants.
+
+    Example:
+
+        Campaign CMP-001
+          ├── IITB fingerprint
+          ├── NITK fingerprint
+          └── IITD fingerprint
+    """
+
+    __tablename__ = "dev2_campaign_members"
+
+    id = Column(
+        Integer,
+        primary_key=True,
+        autoincrement=True,
+    )
+
+    campaign_id = Column(
+        Integer,
+        ForeignKey(
+            "dev2_campaigns.id",
+            ondelete="CASCADE",
+        ),
+        nullable=False,
+        index=True,
+    )
+
+    fingerprint_id = Column(
+        Integer,
+        ForeignKey(
+            "dev2_fingerprints.id",
+            ondelete="CASCADE",
+        ),
+        nullable=False,
+        index=True,
+    )
+
+    tenant_id = Column(
+        String(100),
+        nullable=False,
+        index=True,
+    )
+
+    similarity = Column(
+        Float,
+        nullable=True,
+    )
+
+    correlation_distance = Column(
+        Integer,
+        nullable=True,
+    )
+
+    created_at = Column(
+        DateTime(timezone=True),
+        nullable=False,
+        default=utc_now,
+    )
+
+    # --------------------------------------------------------
+    # Relationships
+    # --------------------------------------------------------
+
+    campaign = relationship(
+        "Dev2Campaign",
+        back_populates="members",
+    )
+
+    fingerprint = relationship(
+        "Dev2Fingerprint",
+        back_populates="campaign_members",
+    )
+
+    # --------------------------------------------------------
+    # Constraints / indexes
+    # --------------------------------------------------------
+
+    __table_args__ = (
+
+        # Prevent the same fingerprint from being inserted
+        # into the same campaign more than once.
+        UniqueConstraint(
+            "campaign_id",
+            "fingerprint_id",
+            name="uq_dev2_campaign_fingerprint",
+        ),
+
+        Index(
+            "ix_dev2_member_campaign_tenant",
+            "campaign_id",
+            "tenant_id",
+        ),
+    )
