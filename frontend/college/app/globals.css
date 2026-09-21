@@ -26,6 +26,7 @@ a { color: inherit; text-decoration: none; }
 .section-heading { display: flex; justify-content: space-between; align-items: baseline; gap: 12px; margin-bottom: 18px; }
 .section-heading h2 { margin: 0; font-size: 22px; }
 .muted { color: #6e7d89; }
+.loading-panel { min-height: 120px; display: grid; place-items: center; color: #176b67; background: rgba(255,255,255,.82); border: 1px solid #d6e0e3; font: 700 13px Arial, sans-serif; letter-spacing: .4px; }
 .stat-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(160px, 1fr)); gap: 12px; margin-bottom: 20px; }
 .stat-card { background: #fff; border: 1px solid #d6e0e3; padding: 17px; }
 .stat-card label { display: block; color: #6b7b86; font: 700 11px Arial, sans-serif; letter-spacing: 1px; text-transform: uppercase; }

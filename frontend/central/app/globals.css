@@ -7,3 +7,26 @@ html, body {
 * { box-sizing: border-box; }
 
 a { color: inherit; text-decoration: none; }
+.central-report-stat { background: #111827; border: 1px solid #243b5b; padding: 16px; }
+.central-report-stat small { display: block; color: #91a9c7; font: 11px Arial, sans-serif; text-transform: uppercase; letter-spacing: 1px; }
+.central-report-stat strong { display: block; margin-top: 8px; color: #e5f0ff; font: 700 18px Arial, sans-serif; overflow-wrap: anywhere; }
+.eyebrow { color: #62d6c5; font: 800 11px Arial, sans-serif; letter-spacing: 1.8px; text-transform: uppercase; }
+.graph-hero { display: flex; justify-content: space-between; gap: 20px; align-items: flex-start; padding: 28px; background: linear-gradient(135deg, #13213f, #0b1221); border: 1px solid #34527e; }
+.graph-hero h2 { margin: 10px 0 8px; font-size: 30px; }
+.graph-hero p { margin: 0; color: #a9bdd8; line-height: 1.6; }
+.graph-status { color: #86efac; border: 1px solid #27734f; padding: 8px 12px; font: 800 11px Arial, sans-serif; letter-spacing: 1px; }
+.graph-layout { display: grid; grid-template-columns: minmax(0, 1.7fr) minmax(260px, .8fr); gap: 16px; margin-top: 16px; }
+.relationship-graph { position: relative; min-height: 390px; overflow: hidden; border: 1px solid #243b5b; background: radial-gradient(circle at center, #173052 0, #0b1221 48%); }
+.relationship-graph::before { content: ''; position: absolute; inset: 50% 12% auto; height: 1px; background: #35618a; box-shadow: 0 -75px 0 #284c70, 0 75px 0 #284c70; opacity: .65; }
+.graph-center, .graph-node { position: absolute; display: grid; gap: 5px; padding: 14px; border: 1px solid #4b78a6; background: #132b4b; box-shadow: 0 10px 24px rgba(0,0,0,.22); }
+.graph-center { left: 50%; top: 50%; transform: translate(-50%, -50%); border-color: #62d6c5; background: #12404b; text-align: center; z-index: 2; }
+.graph-node { width: 165px; }
+.graph-node span, .graph-center span { color: #8db1d4; font: 10px Arial, sans-serif; letter-spacing: 1px; }
+.graph-node strong, .graph-center strong { color: #e5f0ff; font: 700 14px Arial, sans-serif; overflow-wrap: anywhere; }
+.graph-node small { color: #7ee2c8; font: 12px Arial, sans-serif; }
+.graph-node-0 { left: 6%; top: 12%; }.graph-node-1 { right: 6%; top: 12%; }.graph-node-2 { left: 6%; bottom: 12%; }.graph-node-3 { right: 6%; bottom: 12%; }
+.evidence-panel { border: 1px solid #243b5b; background: #111827; padding: 20px; }
+.evidence-panel h3 { margin: 0 0 14px; color: #8ec5ff; text-transform: uppercase; letter-spacing: 1px; font: 800 13px Arial, sans-serif; }
+.evidence-row { display: flex; justify-content: space-between; gap: 12px; padding: 13px 0; border-top: 1px solid #243b5b; color: #9fb5d8; font: 13px Arial, sans-serif; }.evidence-row strong { color: #e5f0ff; }.evidence-note { margin-top: 16px; padding: 12px; color: #bfd4f9; background: #172554; font: 12px/1.5 Arial, sans-serif; }
+.campaign-investigation { margin-top: 16px; background: #111827; border: 1px solid #243b5b; padding: 20px; }.campaign-investigation h3 { margin: 0 0 8px; color: #8ec5ff; }.campaign-investigation p { color: #a9bdd8; line-height: 1.6; }.central-table { width: 100%; border-collapse: collapse; color: #dbeafe; font: 13px Arial, sans-serif; }.central-table th, .central-table td { padding: 11px 8px; text-align: left; border-top: 1px solid #243b5b; }.central-table th { color: #91a9c7; text-transform: uppercase; font-size: 10px; letter-spacing: 1px; }.empty-investigation { margin-top: 16px; padding: 60px 24px; text-align: center; color: #9fb5d8; border: 1px solid #243b5b; background: #111827; }
+@media (max-width: 760px) { .graph-layout { grid-template-columns: 1fr; }.relationship-graph { min-height: 520px; }.graph-node { width: 145px; }.graph-hero { flex-direction: column; } }

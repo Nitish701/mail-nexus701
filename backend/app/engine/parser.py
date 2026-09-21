@@ -4,6 +4,7 @@ from dataclasses import dataclass
 from email import policy
 from email.parser import BytesParser
 from email.utils import getaddresses, parseaddr
+import ipaddress
 import re
 from urllib.parse import urlparse
 
@@ -26,6 +27,7 @@ class ParsedEmail:
 	from_address: str | None
 	from_domain: str | None
 	return_path: str | None
+	source_ip: str | None
 	to_addresses: list[str]
 	subject: str | None
 	headers: dict[str, list[str]]
@@ -56,6 +58,19 @@ def _extract_urls(text: str) -> list[str]:
 		if parsed.scheme and parsed.netloc and url not in urls:
 			urls.append(url)
 	return urls
+
+
+def _extract_source_ip(headers: dict[str, list[str]]) -> str | None:
+	for header_name in ("x-originating-ip", "x-sender-ip", "received"):
+		for value in headers.get(header_name, []):
+			for candidate in re.findall(r"(?<![\w:])(?:\d{1,3}\.){3}\d{1,3}|(?<![\w:])[0-9a-fA-F:]{3,39}(?![\w:])", value):
+				try:
+					address = ipaddress.ip_address(candidate)
+					if address.is_global:
+						return str(address)
+				except ValueError:
+					continue
+	return None
 
 
 def parse_mime(raw_message: bytes) -> ParsedEmail:
@@ -103,6 +118,7 @@ def parse_mime(raw_message: bytes) -> ParsedEmail:
 		from_address=from_address,
 		from_domain=from_domain,
 		return_path=return_path,
+		source_ip=_extract_source_ip(headers),
 		to_addresses=to_addresses,
 		subject=subject,
 		headers=headers,

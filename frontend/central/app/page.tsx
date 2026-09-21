@@ -19,7 +19,8 @@ export default async function CentralHome() {
     { label: 'Suspicious reports', value: String(reports.reports.length) },
     { label: 'Active campaigns', value: String(campaigns.length) },
     { label: 'Related colleges', value: String(new Set(campaigns.flatMap((campaign) => Array.isArray(campaign.members) ? campaign.members.map((member) => String((member as Record<string, unknown>).tenant_id)) : [])).size) },
-    { label: 'Central reports', value: String(overview.reportCount) }
+    { label: 'Detection coverage', value: overview.totalEmailCount ? `${Math.round((overview.suspiciousCount / overview.totalEmailCount) * 100)}%` : 'N/A' },
+    { label: 'Correlation success', value: overview.suspiciousCount ? `${Math.min(100, Math.round((campaigns.length / overview.suspiciousCount) * 100))}%` : 'N/A' }
   ];
 
   return (
@@ -58,8 +59,8 @@ export default async function CentralHome() {
           </div>
 
           <div style={{ background: '#13213f', borderRadius: 16, padding: 24, border: '1px solid #2d4b74' }}>
-            <h2 style={{ margin: '0 0 12px', fontSize: 22 }}>IOC summary</h2>
-            <div style={{ color: '#9fb5d8', padding: '16px 0 8px' }}>{reports.reports.length ? 'Indicators are available inside suspicious investigations.' : 'No suspicious indicator data is currently available.'}</div>
+            <h2 style={{ margin: '0 0 12px', fontSize: 22 }}>Investigation posture</h2>
+            <div style={{ display: 'grid', gap: 10, color: '#bfd4f9' }}><div>Detection coverage: <strong>{overview.totalEmailCount ? `${Math.round((overview.suspiciousCount / overview.totalEmailCount) * 100)}%` : 'N/A'}</strong></div><div>Correlation success: <strong>{overview.suspiciousCount ? `${Math.min(100, Math.round((campaigns.length / overview.suspiciousCount) * 100))}%` : 'N/A'}</strong></div><div style={{ color: '#9fb5d8', fontSize: 13 }}>Calculated from currently stored real reports and campaign records.</div></div>
           </div>
         </section>
 

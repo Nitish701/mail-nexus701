@@ -1,4 +1,6 @@
-const baseUrl = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000';
+const baseUrl = typeof window === 'undefined'
+  ? (process.env.MAIL_NEXUS_INTERNAL_API_URL || 'http://127.0.0.1:8000')
+  : (process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000');
 
 async function organizationQuery() {
   const { cookies } = await import('next/headers');

@@ -99,6 +99,7 @@ def build_email_report(payload: dict[str, Any], report_id: str) -> dict[str, Any
 			"to": payload.get("to_addresses") or [],
 			"subject": payload.get("subject"),
 		},
+		"geolocation": payload.get("geolocation") or {},
 		"authentication": payload.get("authentication") or {},
 		"layers": layers,
 		"ml": {

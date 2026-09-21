@@ -13,6 +13,7 @@ from app.config import COLLEGE_DOMAINS, CORS_ORIGINS, LAYER_TIMEOUT_SECONDS, MOD
 from app.developer2.database import Base, engine, get_db
 from app.developer2 import models as developer2_models
 from app.developer2.router import router as developer2_router, submit_fingerprint
+from app.developer2.geo import enrich_ip
 from app.developer2.schemas import FingerprintEvent
 from app.reports.router import router as reports_router
 from app.services import report_generator, report_store
@@ -177,6 +178,7 @@ async def inbound_email(request: Request, db: Session = Depends(get_db)) -> Inbo
 		logger.warning("Rejected malformed MIME email", exc_info=error)
 		raise HTTPException(status_code=400, detail="Invalid MIME payload") from error
 	organization = _organization_for_recipients(db, parsed.to_addresses)
+	geo = await enrich_ip(parsed.source_ip)
 
 	authentication = validate_authentication(parsed)
 	heuristic_findings, heuristic_score = scan_heuristics(parsed)
@@ -221,6 +223,15 @@ async def inbound_email(request: Request, db: Session = Depends(get_db)) -> Inbo
 		report_id = report_store.generate_report_id("email")
 		report_payload = response.model_dump(mode="json")
 		report_payload["organization_id"] = organization.id if organization else None
+		report_payload["geolocation"] = {
+			"source_ip": parsed.source_ip,
+			"country": geo.country if geo else None,
+			"region": geo.region if geo else None,
+			"city": geo.city if geo else None,
+			"asn": geo.asn if geo else None,
+			"is_vpn_proxy": geo.is_vpn_proxy if geo else None,
+			"confidence": geo.confidence if geo else 0.0,
+		}
 		report = report_generator.build_email_report(report_payload, report_id)
 		report["organization_id"] = organization.id if organization else None
 		report_store.save_report(db, report)

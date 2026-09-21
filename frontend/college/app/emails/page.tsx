@@ -1,9 +1,8 @@
 import { AppShell } from '../../components/AppShell';
-import { fetchCollegeReportDetails, fetchCollegeReports } from '../../lib/api';
+import { fetchCollegeReports } from '../../lib/api';
 
 export default async function CollegeEmailsPage() {
   const reports = await fetchCollegeReports();
-  const reportDetails = await Promise.all(reports.map((report) => fetchCollegeReportDetails(report.report_id)));
 
   return (
     <AppShell
@@ -34,12 +33,11 @@ export default async function CollegeEmailsPage() {
               </tr>
             </thead>
             <tbody>
-              {reports.map((report, index) => {
-                const message = reportDetails[index]?.message as { from?: string; subject?: string } | undefined;
+              {reports.map((report) => {
                 return (
                 <tr key={report.report_id} style={{ borderBottom: '1px solid #f1f5f9' }}>
-                  <td style={{ padding: '12px 8px 12px 0' }}>{message?.from || 'Unknown sender'}</td>
-                  <td style={{ padding: '12px 8px 12px 0' }}>{message?.subject || report.title}</td>
+                  <td style={{ padding: '12px 8px 12px 0' }}>Message available in report</td>
+                  <td style={{ padding: '12px 8px 12px 0' }}>{report.title}</td>
                   <td style={{ padding: '12px 8px 12px 0' }}>Organization</td>
                   <td style={{ padding: '12px 8px 12px 0' }}>
                     <span style={{ color: report.severity === 'high' ? '#b91c1c' : report.severity === 'medium' ? '#d97706' : '#16a34a', fontWeight: 700 }}>{report.severity}</span>

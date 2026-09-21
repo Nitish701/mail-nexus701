@@ -15,6 +15,7 @@ export function CollegeDomainGate({ children }: { children: ReactNode }) {
   const [registering, setRegistering] = useState(false);
   const [name, setName] = useState('');
   const [domains, setDomains] = useState('');
+  const [existingDomain, setExistingDomain] = useState('');
 
   useEffect(() => {
     const saved = window.sessionStorage.getItem(STORAGE_KEY);
@@ -53,14 +54,21 @@ export function CollegeDomainGate({ children }: { children: ReactNode }) {
         method: 'POST', headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ name, domains: domains.split(/[,\s]+/).filter(Boolean) })
       });
+      if (response.status === 409) {
+        const duplicate = domains.split(/[,\s]+/).filter(Boolean)[0] || '';
+        setExistingDomain(duplicate);
+        throw new Error('already registered');
+      }
       if (!response.ok) throw new Error('registration failed');
       const result = await response.json() as { id: number; name: string; domains: string[] };
       const next = { organizationId: result.id, domain: result.domains[0], collegeName: result.name };
       window.sessionStorage.setItem(STORAGE_KEY, JSON.stringify(next));
       document.cookie = `mail-nexus-organization-id=${encodeURIComponent(String(result.id))}; path=/; SameSite=Lax`;
       setContext(next);
-    } catch {
-      setError('We could not register this organization. Check the name and domain list.');
+    } catch (registrationError) {
+      setError(registrationError instanceof Error && registrationError.message === 'already registered'
+        ? 'This domain is already registered to an organization. Use the existing organization below.'
+        : 'We could not register this organization. Check the name and domain list.');
     } finally { setBusy(false); }
   }
 
@@ -85,6 +93,7 @@ export function CollegeDomainGate({ children }: { children: ReactNode }) {
           <button type="submit" disabled={busy || !name.trim() || !domains.trim()}>{busy ? 'Registering...' : 'Register organization'}</button>
         </form>}
         {error && <p className="form-error" role="alert">{error}</p>}
+        {existingDomain && <button type="button" className="text-button" onClick={() => { setDomain(existingDomain); setRegistering(false); setError(''); setExistingDomain(''); }}>Use existing organization for {existingDomain}</button>}
         <button type="button" className="text-button" onClick={() => { setRegistering(!registering); setError(''); }}>{registering ? 'Use an existing organization domain' : 'Register a new organization'}</button>
       </section>
     </main>

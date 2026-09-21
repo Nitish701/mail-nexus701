@@ -1,6 +1,6 @@
 import Link from 'next/link';
 import { AppShell } from '../components/AppShell';
-import { fetchCollegeReportDetails, fetchCollegeReports } from '../lib/api';
+import { fetchCollegeReports } from '../lib/api';
 
 const navItems = [
   { label: 'Dashboard', href: '/' },
@@ -16,7 +16,6 @@ function riskClass(value: string) {
 
 export default async function CollegeHome() {
   const reports = await fetchCollegeReports();
-  const details = await Promise.all(reports.map((report) => fetchCollegeReportDetails(report.report_id)));
   const suspicious = reports.filter((report) => ['medium', 'high', 'critical'].includes(report.severity.toLowerCase())).length;
   const malicious = reports.filter((report) => ['high', 'critical'].includes(report.severity.toLowerCase())).length;
   const safe = reports.filter((report) => report.severity.toLowerCase() === 'low').length;
@@ -26,7 +25,7 @@ export default async function CollegeHome() {
       <section className="stat-grid">
         {[
           ['Emails received', reports.length],
-          ['Emails analyzed', details.filter(Boolean).length],
+          ['Emails analyzed', reports.length],
           ['Suspicious', suspicious],
           ['Malicious', malicious],
           ['Safe', safe]
@@ -42,9 +41,8 @@ export default async function CollegeHome() {
         {reports.length === 0 ? <p className="muted">No emails received for this college yet.</p> : (
           <table className="data-table">
             <thead><tr><th>Time</th><th>Sender</th><th>Subject</th><th>Risk</th><th>Status</th></tr></thead>
-            <tbody>{reports.slice(0, 8).map((report, index) => {
-              const message = details[index]?.message as { from?: string; subject?: string } | undefined;
-              return <tr key={report.report_id}><td>{report.created_at || 'Unknown'}</td><td>{message?.from || 'Unknown sender'}</td><td>{message?.subject || report.title}</td><td><span className={riskClass(report.severity)}>{report.severity}</span></td><td>ANALYZED</td></tr>;
+            <tbody>{reports.slice(0, 8).map((report) => {
+              return <tr key={report.report_id}><td>{report.created_at || 'Unknown'}</td><td>Message available in report</td><td>{report.title}</td><td><span className={riskClass(report.severity)}>{report.severity}</span></td><td>ANALYZED</td></tr>;
             })}</tbody>
           </table>
         )}

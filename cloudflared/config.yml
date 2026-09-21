@@ -1,5 +1,6 @@
 tunnel: ac1f6788-4491-4241-988f-fe9bfa10f0bc
 credentials-file: C:\Users\Nitis\.cloudflared\ac1f6788-4491-4241-988f-fe9bfa10f0bc.json
+protocol: http2
 
 ingress:
   - hostname: mail.edushield1.in
@@ -7,5 +8,8 @@ ingress:
 
   - hostname: api.edushield1.in
     service: http://localhost:8000
+
+  - hostname: soc.edushield1.in
+    service: http://localhost:3001
 
   - service: http_status:404

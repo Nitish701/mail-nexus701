@@ -25,21 +25,28 @@ export async function fetchCentralSuspiciousReports() {
   return fetchCentralReports();
 }
 
+export async function fetchCentralOrganizationReports(organizationId: number) {
+  return readJson(`/api/reports?suspicious_only=true&organization_id=${organizationId}`, { reports: [] as Array<Record<string, unknown>> });
+}
+
 export async function fetchCentralReportDetails(reportId: string) {
   return readJson(`/api/reports/${encodeURIComponent(reportId)}`, null as Record<string, unknown> | null);
 }
 
 export async function fetchCentralOverview() {
-  const [health, campaigns, reportResponse] = await Promise.all([
+  const [health, campaigns, reportResponse, allReports] = await Promise.all([
     fetchCentralHealth(),
     fetchCentralCampaigns(),
-    fetchCentralReports()
+    fetchCentralReports(),
+    readJson('/api/reports?report_type=email', { reports: [] as Array<Record<string, unknown>> })
   ]);
 
   return {
     apiStatus: health.status || 'offline',
     campaignCount: campaigns.length,
     reportCount: Array.isArray(reportResponse.reports) ? reportResponse.reports.length : 0,
+    totalEmailCount: Array.isArray(allReports.reports) ? allReports.reports.length : 0,
+    suspiciousCount: Array.isArray(reportResponse.reports) ? reportResponse.reports.length : 0,
     environment: 'central',
     baseUrl
   };
