@@ -23,14 +23,34 @@ export default {
 			headers.set("Authorization", `Bearer ${env.WEBHOOK_SECRET}`);
 		}
 
-		const response = await fetch(new URL(DEFAULT_WEBHOOK_PATH, webhookUrl), {
-			method: "POST",
-			headers,
-			body: message.raw,
-		});
+		const rawEmail = await new Response(message.raw).arrayBuffer();
+		let lastStatus = "network error";
+		try {
+			for (let attempt = 1; attempt <= 3; attempt += 1) {
+				try {
+					const response = await fetch(new URL(DEFAULT_WEBHOOK_PATH, webhookUrl), {
+						method: "POST",
+						headers,
+						body: rawEmail,
+					});
 
-		if (!response.ok) {
-			message.setReject(`Webhook rejected email with HTTP ${response.status}`);
+					if (response.ok) {
+						return;
+					}
+					lastStatus = `HTTP ${response.status}`;
+				} catch (error) {
+					lastStatus = "network error";
+					console.error(`Webhook attempt ${attempt} failed`, error);
+				}
+				if (attempt < 3) {
+					await new Promise((resolve) => setTimeout(resolve, attempt * 500));
+				}
+			}
+			console.error(`Webhook rejected email after 3 attempts: ${lastStatus}`);
+			message.setReject(`Webhook rejected email after 3 attempts: ${lastStatus}`);
+		} catch (error) {
+			console.error("Email webhook preparation failed", error);
+			message.setReject("Email webhook preparation failed");
 		}
 	},
 };

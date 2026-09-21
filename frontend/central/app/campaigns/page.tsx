@@ -27,6 +27,7 @@ export default async function CentralCampaignsPage() {
           <div style={{ display: 'grid', gap: 14 }}>
             {campaigns.map((campaign) => {
               const severity = String(campaign.status || 'Unknown');
+              const members = Array.isArray(campaign.members) ? campaign.members as Array<Record<string, unknown>> : [];
               return (
             <div key={String(campaign.campaign_id)} style={{ border: '1px solid #243b5b', borderRadius: 12, padding: 16, background: '#0b1221' }}>
               <div style={{ display: 'flex', justifyContent: 'space-between', flexWrap: 'wrap', gap: 12 }}>
@@ -38,6 +39,7 @@ export default async function CentralCampaignsPage() {
                   <span style={{ color: '#8ec5ff', fontWeight: 700 }}>{severity}</span>
                   <span style={{ color: '#8ec5ff', fontWeight: 700 }}>{Number(campaign.email_count || 0)} emails</span>
                 </div>
+              <div style={{ marginTop: 14, color: '#9fb5d8', fontSize: 13 }}>Relationship map: {members.length ? members.map((member) => `${String(member.tenant_id)} (${Math.round(Number(member.similarity || 0) * 100)}% similarity)`).join(' · ') : 'No member relationship data'}</div>
               </div>
             </div>
               );

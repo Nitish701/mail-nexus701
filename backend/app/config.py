@@ -20,3 +20,16 @@ WEBHOOK_SECRET = os.getenv("WEBHOOK_SECRET")
 DATABASE_URL = os.getenv("MAIL_NEXUS_DATABASE_URL", f"sqlite:///{BASE_DIR / 'mail_nexus.db'}")
 IP_INTELLIGENCE_PATH = Path(os.getenv("MAIL_NEXUS_IP_INTELLIGENCE_PATH", BASE_DIR / "data" / "ip_intelligence.csv"))
 GEOLOCATION_URL = os.getenv("MAIL_NEXUS_GEOLOCATION_URL", "https://ipwho.is")
+COLLEGE_DOMAINS = {
+	domain.strip().lower()
+	for domain in os.getenv("MAIL_NEXUS_COLLEGE_DOMAINS", "college-example.edu.in,cgc.edu.in,edushield1.in,edushiel1.in").split(",")
+	if domain.strip()
+}
+CORS_ORIGINS = [
+	origin.strip()
+	for origin in os.getenv(
+		"MAIL_NEXUS_CORS_ORIGINS",
+		"https://mail.edushield1.in,http://localhost:3000,http://localhost:3001",
+	).split(",")
+	if origin.strip()
+]

@@ -3,6 +3,7 @@ uvicorn[standard]
 httpx
 joblib
 xgboost
+scikit-learn
 redis
 yara-python
 py-tlsh

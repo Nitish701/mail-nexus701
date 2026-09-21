@@ -1,8 +1,10 @@
 import { AppShell } from '../../components/AppShell';
+import { fetchCollegeReportDetails, fetchCollegeReports } from '../../lib/api';
 
-const emails: { sender: string; subject: string; risk: string; tenant: string; status: string }[] = [];
+export default async function CollegeEmailsPage() {
+  const reports = await fetchCollegeReports();
+  const reportDetails = await Promise.all(reports.map((report) => fetchCollegeReportDetails(report.report_id)));
 
-export default function CollegeEmailsPage() {
   return (
     <AppShell
       title="Organization Security Portal"
@@ -18,7 +20,7 @@ export default function CollegeEmailsPage() {
     >
       <section style={{ background: '#fff', borderRadius: 16, padding: 24, border: '1px solid #dfeaf6' }}>
         <h2 style={{ margin: '0 0 16px', fontSize: 22 }}>Email security queue</h2>
-        {emails.length === 0 ? (
+        {reports.length === 0 ? (
           <div style={{ color: '#5a6f8a', padding: '24px 0 8px' }}>No email security events are currently available.</div>
         ) : (
           <table style={{ width: '100%', borderCollapse: 'collapse' }}>
@@ -32,17 +34,20 @@ export default function CollegeEmailsPage() {
               </tr>
             </thead>
             <tbody>
-              {emails.map((email) => (
-                <tr key={email.sender} style={{ borderBottom: '1px solid #f1f5f9' }}>
-                  <td style={{ padding: '12px 8px 12px 0' }}>{email.sender}</td>
-                  <td style={{ padding: '12px 8px 12px 0' }}>{email.subject}</td>
-                  <td style={{ padding: '12px 8px 12px 0' }}>{email.tenant}</td>
+              {reports.map((report, index) => {
+                const message = reportDetails[index]?.message as { from?: string; subject?: string } | undefined;
+                return (
+                <tr key={report.report_id} style={{ borderBottom: '1px solid #f1f5f9' }}>
+                  <td style={{ padding: '12px 8px 12px 0' }}>{message?.from || 'Unknown sender'}</td>
+                  <td style={{ padding: '12px 8px 12px 0' }}>{message?.subject || report.title}</td>
+                  <td style={{ padding: '12px 8px 12px 0' }}>Organization</td>
                   <td style={{ padding: '12px 8px 12px 0' }}>
-                    <span style={{ color: email.risk === 'Critical' ? '#b91c1c' : email.risk === 'High' ? '#d97706' : email.risk === 'Medium' ? '#2563eb' : '#16a34a', fontWeight: 700 }}>{email.risk}</span>
+                    <span style={{ color: report.severity === 'high' ? '#b91c1c' : report.severity === 'medium' ? '#d97706' : '#16a34a', fontWeight: 700 }}>{report.severity}</span>
                   </td>
-                  <td style={{ padding: '12px 8px 12px 0' }}>{email.status}</td>
+                  <td style={{ padding: '12px 8px 12px 0' }}>Received</td>
                 </tr>
-              ))}
+                );
+              })}
             </tbody>
           </table>
         )}

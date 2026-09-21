@@ -20,3 +20,9 @@ node_modules/
 *.log
 *.db
 backend/tmp/
+
+# Build artifacts and downloaded binaries
+*.tsbuildinfo
+cloudflared/cloudflared.exe
+backend/train_model.zip
+backend/train_model/

@@ -101,6 +101,7 @@ async def submit_fingerprint(
     # --------------------------------------------------------
 
     email = Dev2Email(
+        organization_id=event.organization_id,
         tenant_id=event.tenant_id,
         message_id=event.message_id,
         sender=event.sender,
@@ -139,6 +140,7 @@ async def submit_fingerprint(
     # --------------------------------------------------------
 
     fingerprint = Dev2Fingerprint(
+        organization_id=event.organization_id,
         email_id=email.id,
         tenant_id=event.tenant_id,
         fingerprint_hash=event.fingerprint_hash,
@@ -317,6 +319,7 @@ async def submit_fingerprint(
     "/campaigns",
 )
 def get_campaigns(
+    organization_id: int | None = None,
     db: Session = Depends(get_db),
 ):
 
@@ -326,6 +329,8 @@ def get_campaigns(
             Dev2Campaign.last_seen.desc()
         )
     )
+    if organization_id is not None:
+        statement = statement.join(Dev2CampaignMember).join(Dev2Fingerprint).where(Dev2Fingerprint.organization_id == organization_id).distinct()
 
     campaigns = list(
         db.execute(statement)

@@ -1,6 +1,7 @@
-name = "mail-nexus-email-worker"
+name = "email-detector"
 main = "worker.js"
 compatibility_date = "2026-09-20"
 
 [vars]
-# Set WEBHOOK_URL and WEBHOOK_SECRET with `wrangler secret put` or your deployment environment.
+WEBHOOK_URL = "https://api.edushield1.in"
+# Set WEBHOOK_SECRET with `wrangler secret put` only when the backend requires one.

@@ -37,16 +37,30 @@ def _render(report: dict, fmt: str) -> str:
 @router.get("")
 def list_reports(
 	report_type: str | None = Query(default=None, pattern="^(email|campaign)$"),
+	suspicious_only: bool = Query(default=False),
+	organization_id: int | None = Query(default=None, ge=1),
 	limit: int = Query(default=50, ge=1, le=200),
 	offset: int = Query(default=0, ge=0),
 	db: Session = Depends(get_db),
 ):
-	return {"reports": report_store.list_reports(db, report_type=report_type, limit=limit, offset=offset)}
+	reports = report_store.list_reports(db, report_type=report_type, organization_id=organization_id, limit=limit, offset=offset)
+	if suspicious_only:
+		filtered: list[dict] = []
+		for report in reports:
+			if report.get("report_type") == "campaign":
+				filtered.append(report)
+				continue
+			detail = report_store.get_report(db, report["report_id"]) or {}
+			risk = detail.get("risk") or {}
+			if int(risk.get("base_score") or 0) >= 20:
+				filtered.append(report)
+		reports = filtered
+	return {"reports": reports}
 
 
 @router.get("/{report_id}")
-def get_report(report_id: str, db: Session = Depends(get_db)):
-	report = report_store.get_report(db, report_id)
+def get_report(report_id: str, organization_id: int | None = Query(default=None, ge=1), db: Session = Depends(get_db)):
+	report = report_store.get_report(db, report_id, organization_id=organization_id)
 	if report is None:
 		raise HTTPException(status_code=404, detail="Report not found")
 	return report

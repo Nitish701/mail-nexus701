@@ -1,42 +1,15 @@
 import { AppShell } from '../../components/AppShell';
+import { fetchCollegeReportDetails, fetchCollegeReports } from '../../lib/api';
 
-const threats: { type: string; score: string; evidence: string; status: string }[] = [];
+const navItems = [{ label: 'Dashboard', href: '/' }, { label: 'Emails', href: '/emails' }, { label: 'Threats', href: '/threats' }, { label: 'Campaigns', href: '/campaigns' }, { label: 'Reports', href: '/reports' }];
 
-export default function CollegeThreatsPage() {
-  return (
-    <AppShell
-      title="Organization Security Portal"
-      subtitle="Organization security"
-      navItems={[
-        { label: 'Dashboard', href: '/' },
-        { label: 'Emails', href: '/emails' },
-        { label: 'Threats', href: '/threats' },
-        { label: 'Investigations', href: '/investigations' },
-        { label: 'Reports', href: '/reports' },
-        { label: 'Settings', href: '/settings' }
-      ]}
-    >
-      <section style={{ background: '#fff', borderRadius: 16, padding: 24, border: '1px solid #dfeaf6' }}>
-        <h2 style={{ margin: '0 0 16px', fontSize: 22 }}>Threat overview</h2>
-        {threats.length === 0 ? (
-          <div style={{ color: '#5a6f8a', padding: '24px 0 8px' }}>No active threat signals are currently available.</div>
-        ) : (
-          <div style={{ display: 'grid', gap: 14 }}>
-            {threats.map((threat) => (
-              <div key={threat.type} style={{ border: '1px solid #dfeaf6', borderRadius: 12, padding: 16, background: '#f8fbff' }}>
-                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 12, flexWrap: 'wrap' }}>
-                  <div>
-                    <div style={{ fontWeight: 700, fontSize: 18 }}>{threat.type}</div>
-                    <div style={{ color: '#5a6f8a', marginTop: 4 }}>{threat.evidence}</div>
-                  </div>
-                  <div style={{ fontWeight: 700, color: '#3c6bb3' }}>{threat.score}/100</div>
-                </div>
-                <div style={{ marginTop: 12, color: '#244b7a', fontWeight: 700 }}>{threat.status}</div>
-              </div>
-            ))}
-          </div>
-        )}
-      </section>
-    </AppShell>
-  );
+export default async function CollegeThreatsPage() {
+  const reports = await fetchCollegeReports();
+  const details = await Promise.all(reports.map((report) => fetchCollegeReportDetails(report.report_id)));
+  const threats = details.flatMap((detail, index) => (detail?.findings as string[] | undefined || []).map((finding) => ({ finding, report: reports[index] })));
+  return <AppShell title="Threat intelligence" subtitle="Detection signals" navItems={navItems}>
+    <section className="data-section"><div className="section-heading"><div><h2>Observed threat signals</h2><div className="muted">Signals are derived from received email analysis. No placeholder threats are shown.</div></div></div>
+      {threats.length === 0 ? <p className="muted">No suspicious indicators detected.</p> : <table className="data-table"><thead><tr><th>Signal</th><th>Report</th><th>Risk</th><th>Status</th></tr></thead><tbody>{threats.map((item, index) => <tr key={`${item.report.report_id}-${index}`}><td>{item.finding}</td><td>{item.report.report_id}</td><td><span className={`badge badge-${item.report.severity.toLowerCase()}`}>{item.report.severity}</span></td><td>UNDER REVIEW</td></tr>)}</tbody></table>}
+    </section>
+  </AppShell>;
 }

@@ -14,10 +14,7 @@ def tlsh_hex(value: str) -> str | None:
 		return None
 
 	try:
-		try:
-			import tlsh
-		except ImportError:
-			import pytlsh as tlsh
+		import tlsh
 		result = tlsh.hash(data)
 		return result if result and result != "TNULL" else None
 	except (ImportError, AttributeError, ValueError):

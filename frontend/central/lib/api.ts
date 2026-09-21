@@ -18,7 +18,11 @@ export async function fetchCentralCampaigns() {
 }
 
 export async function fetchCentralReports() {
-  return readJson('/api/reports', { reports: [] as Array<Record<string, unknown>> });
+  return readJson('/api/reports?suspicious_only=true', { reports: [] as Array<Record<string, unknown>> });
+}
+
+export async function fetchCentralSuspiciousReports() {
+  return fetchCentralReports();
 }
 
 export async function fetchCentralReportDetails(reportId: string) {

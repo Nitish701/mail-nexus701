@@ -425,3 +425,5 @@ class CorrelationResult(BaseModel):
     matched_fingerprints: List[int] = Field(
         default_factory=list
     )
+
+    organization_id: Optional[int] = None

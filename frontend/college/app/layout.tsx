@@ -1,5 +1,6 @@
 import type { Metadata } from 'next';
 import './globals.css';
+import { CollegeDomainGate } from '../components/CollegeDomainGate';
 
 export const metadata: Metadata = {
   title: 'Mail-Nexus Organization Security Portal',
@@ -9,7 +10,7 @@ export const metadata: Metadata = {
 export default function RootLayout({ children }: { children: React.ReactNode }) {
   return (
     <html lang="en">
-      <body>{children}</body>
+      <body><CollegeDomainGate>{children}</CollegeDomainGate></body>
     </html>
   );
 }

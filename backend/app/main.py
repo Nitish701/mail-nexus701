@@ -1,10 +1,15 @@
 import asyncio
 import hmac
+import logging
+import re
+from email.utils import parseaddr
 
 from fastapi import Depends, FastAPI, HTTPException, Request
+from fastapi.middleware.cors import CORSMiddleware
+from sqlalchemy import inspect, text, select
 from sqlalchemy.orm import Session
 
-from app.config import LAYER_TIMEOUT_SECONDS, MODEL_PATH, WEBHOOK_SECRET
+from app.config import COLLEGE_DOMAINS, CORS_ORIGINS, LAYER_TIMEOUT_SECONDS, MODEL_PATH, WEBHOOK_SECRET
 from app.developer2.database import Base, engine, get_db
 from app.developer2 import models as developer2_models
 from app.developer2.router import router as developer2_router, submit_fingerprint
@@ -22,11 +27,112 @@ from app.schemas import Attachment, AuthenticationCheck, InboundEmailResponse, L
 
 
 app = FastAPI(title="Mail-Nexus API", version="0.1.0")
+logger = logging.getLogger("mail_nexus.ingestion")
 MAX_EMAIL_BYTES = 25 * 1024 * 1024
 body_text_model = BodyTextModel(MODEL_PATH)
 Base.metadata.create_all(bind=engine)
+report_store.ReportBase.metadata.create_all(bind=engine)
+
+
+def _ensure_column(table: str, column: str, definition: str) -> None:
+	if table not in inspect(engine).get_table_names():
+		return
+	if column not in {item["name"] for item in inspect(engine).get_columns(table)}:
+		with engine.begin() as connection:
+			connection.execute(text(f"ALTER TABLE {table} ADD COLUMN {column} {definition}"))
+
+
+for _table in ("dev2_emails", "dev2_fingerprints", "dev2_campaigns"):
+	_ensure_column(_table, "organization_id", "INTEGER")
+_ensure_column("mail_nexus_reports", "organization_id", "INTEGER")
+
+
+def _seed_legacy_organization() -> None:
+	if not COLLEGE_DOMAINS:
+		return
+	with Session(bind=engine) as session:
+		existing = session.execute(select(developer2_models.OrganizationDomain).where(developer2_models.OrganizationDomain.domain.in_(COLLEGE_DOMAINS))).scalars().first()
+		if existing:
+			return
+		organization = developer2_models.Organization(name="EduShield", description="Migrated configured domains")
+		organization.domains = [developer2_models.OrganizationDomain(domain=domain) for domain in sorted(COLLEGE_DOMAINS)]
+		session.add(organization)
+		session.commit()
+
+
+_seed_legacy_organization()
 app.include_router(developer2_router)
 app.include_router(reports_router)
+app.add_middleware(
+	CORSMiddleware,
+	allow_origins=CORS_ORIGINS,
+	allow_credentials=False,
+	allow_methods=["GET", "POST", "DELETE", "OPTIONS"],
+	allow_headers=["*"]
+)
+
+
+def _normalize_domain(value: str) -> str:
+	return value.strip().lower().rstrip(".")
+
+
+def _validate_domain(value: str) -> str:
+	domain = _normalize_domain(value)
+	if not re.fullmatch(r"(?=.{3,253}$)(?:[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?\.)+[a-z]{2,63}", domain):
+		raise HTTPException(status_code=400, detail="Invalid domain")
+	return domain
+
+
+def _organization_for_recipients(db: Session, recipients: list[str]) -> developer2_models.Organization | None:
+	domains = {_normalize_domain(parseaddr(address)[1].rsplit("@", 1)[1]) for address in recipients if "@" in parseaddr(address)[1]}
+	if not domains:
+		return None
+	organizations = db.execute(
+		select(developer2_models.Organization)
+		.join(developer2_models.OrganizationDomain)
+		.where(developer2_models.OrganizationDomain.domain.in_(domains))
+	).scalars().unique().all()
+	return organizations[0] if len(organizations) == 1 else None
+
+
+@app.post("/api/organizations")
+async def register_organization(payload: dict[str, object], db: Session = Depends(get_db)) -> dict[str, object]:
+	name = str(payload.get("name", "")).strip()
+	domains = sorted({_validate_domain(str(domain)) for domain in (payload.get("domains") or [])})
+	if not name or not domains:
+		raise HTTPException(status_code=400, detail="Organization name and at least one domain are required")
+	existing = db.execute(select(developer2_models.OrganizationDomain).where(developer2_models.OrganizationDomain.domain.in_(domains))).scalars().first()
+	if existing:
+		raise HTTPException(status_code=409, detail="One or more domains are already registered")
+	organization = developer2_models.Organization(name=name, description=str(payload.get("description") or "").strip() or None)
+	organization.domains = [developer2_models.OrganizationDomain(domain=domain) for domain in domains]
+	db.add(organization)
+	db.commit()
+	db.refresh(organization)
+	return {"id": organization.id, "name": organization.name, "description": organization.description, "domains": domains}
+
+
+@app.get("/api/organizations")
+async def list_organizations(db: Session = Depends(get_db)) -> list[dict[str, object]]:
+	organizations = db.execute(select(developer2_models.Organization).order_by(developer2_models.Organization.name)).scalars().unique().all()
+	return [{"id": item.id, "name": item.name, "description": item.description, "domains": [domain.domain for domain in item.domains]} for item in organizations]
+
+
+@app.post("/api/organizations/verify-domain")
+@app.post("/api/college/verify-domain")
+async def verify_college_domain(payload: dict[str, str], db: Session = Depends(get_db)) -> dict[str, object]:
+	domain = _validate_domain(payload.get("domain", ""))
+	organization = db.execute(
+		select(developer2_models.Organization)
+		.join(developer2_models.OrganizationDomain)
+		.where(developer2_models.OrganizationDomain.domain == domain)
+	).scalars().unique().first()
+	if organization is None:
+		# Legacy configured domains remain verifiable until registered data is migrated.
+		if domain not in COLLEGE_DOMAINS:
+			raise HTTPException(status_code=404, detail="Organization domain is not registered")
+		return {"verified": True, "organization_id": None, "domain": domain, "organization_name": domain.split(".")[0].replace("-", " ").title()}
+	return {"verified": True, "organization_id": organization.id, "domain": domain, "organization_name": organization.name, "domains": [item.domain for item in organization.domains]}
 
 
 async def _scan_static_with_budget(attachments) -> StaticScanResult:
@@ -51,8 +157,13 @@ async def inbound_email(request: Request, db: Session = Depends(get_db)) -> Inbo
 			raise HTTPException(status_code=401, detail="Invalid webhook secret")
 
 	content_length = request.headers.get("content-length")
-	if content_length and int(content_length) > MAX_EMAIL_BYTES:
-		raise HTTPException(status_code=413, detail="Email payload exceeds 25 MiB")
+	if content_length:
+		try:
+			if int(content_length) > MAX_EMAIL_BYTES:
+				raise HTTPException(status_code=413, detail="Email payload exceeds 25 MiB")
+		except ValueError as error:
+			logger.warning("Rejected email with invalid Content-Length header")
+			raise HTTPException(status_code=400, detail="Invalid Content-Length header") from error
 
 	raw_message = await request.body()
 	if not raw_message:
@@ -62,8 +173,10 @@ async def inbound_email(request: Request, db: Session = Depends(get_db)) -> Inbo
 
 	try:
 		parsed = parse_mime(raw_message)
-	except (TypeError, ValueError) as error:
+	except Exception as error:
+		logger.warning("Rejected malformed MIME email", exc_info=error)
 		raise HTTPException(status_code=400, detail="Invalid MIME payload") from error
+	organization = _organization_for_recipients(db, parsed.to_addresses)
 
 	authentication = validate_authentication(parsed)
 	heuristic_findings, heuristic_score = scan_heuristics(parsed)
@@ -106,17 +219,21 @@ async def inbound_email(request: Request, db: Session = Depends(get_db)) -> Inbo
 
 	try:
 		report_id = report_store.generate_report_id("email")
-		report = report_generator.build_email_report(response.model_dump(mode="json"), report_id)
+		report_payload = response.model_dump(mode="json")
+		report_payload["organization_id"] = organization.id if organization else None
+		report = report_generator.build_email_report(report_payload, report_id)
+		report["organization_id"] = organization.id if organization else None
 		report_store.save_report(db, report)
 		response.report_id = report_id
-	except Exception:  # Reporting must never block email ingestion.
-		pass
+	except Exception:
+		logger.exception("Failed to persist email report for message_id=%s", response.message_id)
 
 	if base_score >= 20:
 		try:
 			await submit_fingerprint(
 				FingerprintEvent(
-					tenant_id=request.headers.get("x-mail-nexus-tenant-id", "organization"),
+					tenant_id=f"organization:{organization.id}" if organization else request.headers.get("x-mail-nexus-tenant-id", "unassigned"),
+					organization_id=organization.id if organization else None,
 					message_id=response.message_id,
 					sender=response.from_address,
 					recipient=response.to_addresses[0] if response.to_addresses else None,

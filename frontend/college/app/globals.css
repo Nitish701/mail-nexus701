@@ -1,9 +1,51 @@
 html, body {
   margin: 0;
   padding: 0;
-  background: #f3f7fb;
+  background: #eef3f7;
+  color: #172331;
+  font-family: Georgia, 'Times New Roman', serif;
 }
 
 * { box-sizing: border-box; }
 
 a { color: inherit; text-decoration: none; }
+
+.app-shell { min-height: 100vh; padding: 28px 32px 56px; background: radial-gradient(circle at 92% 0%, #dbe8e8 0, transparent 30%), #eef3f7; }
+.shell-header { display: flex; justify-content: space-between; align-items: flex-start; gap: 24px; margin-bottom: 24px; }
+.shell-header h1 { margin: 8px 0 4px; font-size: clamp(28px, 4vw, 42px); letter-spacing: 0; }
+.eyebrow { font: 700 12px/1.2 Georgia, serif; letter-spacing: 1.8px; text-transform: uppercase; }
+.live-indicator { display: flex; align-items: center; gap: 7px; color: #147a5a; font: 800 12px/1.2 Arial, sans-serif; letter-spacing: 1.5px; margin-bottom: 12px; }
+.live-dot { width: 8px; height: 8px; border-radius: 50%; background: #22a06b; box-shadow: 0 0 0 4px #d4f0e4; }
+.college-context { color: #536475; font: 700 14px/1.4 Arial, sans-serif; }
+.college-context span { display: block; color: #718293; font-size: 12px; font-weight: 500; }
+.shell-subtitle { color: #2f5e69; background: #dcebea; border: 1px solid #c5dddd; padding: 10px 14px; font: 700 12px Arial, sans-serif; text-transform: uppercase; letter-spacing: 1px; }
+.shell-nav { display: flex; flex-wrap: wrap; gap: 8px; margin-bottom: 28px; }
+.nav-link { padding: 10px 14px; border: 1px solid #d2dde2; background: rgba(255,255,255,.78); color: #304250; font: 700 13px Arial, sans-serif; }
+.nav-link:hover { border-color: #317c78; color: #14645f; }
+.data-section { background: rgba(255,255,255,.9); border: 1px solid #d6e0e3; padding: 24px; }
+.section-heading { display: flex; justify-content: space-between; align-items: baseline; gap: 12px; margin-bottom: 18px; }
+.section-heading h2 { margin: 0; font-size: 22px; }
+.muted { color: #6e7d89; }
+.stat-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(160px, 1fr)); gap: 12px; margin-bottom: 20px; }
+.stat-card { background: #fff; border: 1px solid #d6e0e3; padding: 17px; }
+.stat-card label { display: block; color: #6b7b86; font: 700 11px Arial, sans-serif; letter-spacing: 1px; text-transform: uppercase; }
+.stat-card strong { display: block; margin-top: 8px; font: 800 28px Arial, sans-serif; color: #1e3743; }
+.data-table { width: 100%; border-collapse: collapse; font: 13px/1.45 Arial, sans-serif; }
+.data-table th { color: #647583; font-size: 11px; text-align: left; text-transform: uppercase; letter-spacing: .8px; border-bottom: 1px solid #dbe4e7; padding: 10px 8px; }
+.data-table td { border-bottom: 1px solid #e6ecee; padding: 13px 8px; vertical-align: top; }
+.badge { display: inline-flex; align-items: center; padding: 4px 8px; font: 800 10px Arial, sans-serif; letter-spacing: .7px; text-transform: uppercase; border: 1px solid currentColor; }
+.badge-low, .badge-safe { color: #237b59; background: #e8f5ed; }
+.badge-medium { color: #9a6a12; background: #fff5da; }
+.badge-high, .badge-critical { color: #a23838; background: #fdeaea; }
+.domain-gate { min-height: 100vh; display: grid; place-items: center; padding: 24px; background: radial-gradient(circle at 85% 15%, #c7dddd 0, transparent 34%), #eef3f7; }
+.domain-panel { width: min(100%, 520px); padding: 38px; background: rgba(255,255,255,.94); border: 1px solid #d2e0e1; box-shadow: 0 20px 60px rgba(26,55,62,.09); }
+.domain-panel h1 { margin: 10px 0 10px; font-size: 38px; }
+.domain-panel p { color: #5f707b; line-height: 1.6; }
+.domain-form { display: grid; gap: 9px; margin-top: 24px; }
+.domain-form label { color: #354b58; font: 700 12px Arial, sans-serif; text-transform: uppercase; letter-spacing: .8px; }
+.domain-form input { width: 100%; border: 1px solid #b9cbd0; padding: 13px; font: 15px Arial, sans-serif; }
+.domain-form button { border: 0; background: #176b67; color: white; padding: 13px 16px; font: 800 13px Arial, sans-serif; cursor: pointer; }
+.domain-form button:disabled { opacity: .55; cursor: wait; }
+.form-error { color: #a23838 !important; font: 700 13px Arial, sans-serif; }
+.domain-hint { font: 12px Arial, sans-serif; }
+@media (max-width: 680px) { .app-shell { padding: 22px 16px 40px; } .shell-header { flex-direction: column; } .shell-subtitle { align-self: flex-start; } .data-section { padding: 16px; overflow-x: auto; } .domain-panel { padding: 26px; } }

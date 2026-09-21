@@ -1,4 +1,4 @@
-import { fetchCentralOverview } from '../lib/api';
+import { fetchCentralCampaigns, fetchCentralOverview, fetchCentralReports } from '../lib/api';
 import Link from 'next/link';
 
 const navItems = [
@@ -13,13 +13,13 @@ const navItems = [
 ];
 
 export default async function CentralHome() {
-  const overview = await fetchCentralOverview();
+  const [overview, reports, campaigns] = await Promise.all([fetchCentralOverview(), fetchCentralReports(), fetchCentralCampaigns()]);
 
   const metrics = [
-    { label: 'Backend status', value: overview.apiStatus },
-    { label: 'Active campaigns', value: String(overview.campaignCount) },
-    { label: 'Central reports', value: String(overview.reportCount) },
-    { label: 'Affected tenants', value: '0' }
+    { label: 'Suspicious reports', value: String(reports.reports.length) },
+    { label: 'Active campaigns', value: String(campaigns.length) },
+    { label: 'Related colleges', value: String(new Set(campaigns.flatMap((campaign) => Array.isArray(campaign.members) ? campaign.members.map((member) => String((member as Record<string, unknown>).tenant_id)) : [])).size) },
+    { label: 'Central reports', value: String(overview.reportCount) }
   ];
 
   return (
@@ -54,19 +54,19 @@ export default async function CentralHome() {
               <h2 style={{ margin: 0, fontSize: 22 }}>Live threat feed</h2>
               <span style={{ color: '#8ec5ff', fontWeight: 700 }}>Federated intelligence</span>
             </div>
-            <div style={{ color: '#9fb5d8', padding: '28px 12px 8px' }}>No live threat events are currently available.</div>
+            {reports.reports.length === 0 ? <div style={{ color: '#9fb5d8', padding: '28px 12px 8px' }}>No suspicious threat events are currently available.</div> : <div style={{ display: 'grid', gap: 10 }}>{reports.reports.slice(0, 5).map((report) => <div key={String(report.report_id)} style={{ borderTop: '1px solid #243b5b', paddingTop: 10 }}><strong>{String(report.title || 'Suspicious email')}</strong><div style={{ color: '#9fb5d8', marginTop: 4 }}>{String(report.report_id)} · {String(report.severity || 'review')}</div></div>)}</div>}
           </div>
 
           <div style={{ background: '#13213f', borderRadius: 16, padding: 24, border: '1px solid #2d4b74' }}>
             <h2 style={{ margin: '0 0 12px', fontSize: 22 }}>IOC summary</h2>
-            <div style={{ color: '#9fb5d8', padding: '16px 0 8px' }}>No indicator data is currently available.</div>
+            <div style={{ color: '#9fb5d8', padding: '16px 0 8px' }}>{reports.reports.length ? 'Indicators are available inside suspicious investigations.' : 'No suspicious indicator data is currently available.'}</div>
           </div>
         </section>
 
         <section style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 20 }}>
           <div style={{ background: '#111827', borderRadius: 16, padding: 24, border: '1px solid #243b5b' }}>
             <h2 style={{ margin: '0 0 12px', fontSize: 22 }}>Tenant monitoring</h2>
-            <div style={{ color: '#9fb5d8', padding: '16px 0 8px' }}>No organization tenants are currently connected.</div>
+            <div style={{ color: '#9fb5d8', padding: '16px 0 8px' }}>{campaigns.length ? 'College relationships are visible through campaign memberships.' : 'No cross-college campaign relationship is currently established.'}</div>
           </div>
 
           <div style={{ background: '#111827', borderRadius: 16, padding: 24, border: '1px solid #243b5b' }}>
