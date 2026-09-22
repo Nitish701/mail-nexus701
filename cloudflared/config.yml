@@ -6,6 +6,12 @@ ingress:
   - hostname: mail.edushield1.in
     service: http://localhost:3000
 
+  - hostname: organization-a.edushield1.in
+    service: http://localhost:3000
+
+  - hostname: organization-b.edushield1.in
+    service: http://localhost:3000
+
   - hostname: api.edushield1.in
     service: http://localhost:8000
 

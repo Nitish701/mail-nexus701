@@ -29,7 +29,7 @@ CORS_ORIGINS = [
 	origin.strip()
 	for origin in os.getenv(
 		"MAIL_NEXUS_CORS_ORIGINS",
-		"https://mail.edushield1.in,http://localhost:3000,http://localhost:3001",
+		"https://mail.edushield1.in,https://organization-a.edushield1.in,https://organization-b.edushield1.in,https://soc.edushield1.in,http://localhost:3000,http://localhost:3001",
 	).split(",")
 	if origin.strip()
 ]

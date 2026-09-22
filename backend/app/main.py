@@ -88,6 +88,14 @@ def _organization_for_recipients(db: Session, recipients: list[str]) -> develope
 	domains = {_normalize_domain(parseaddr(address)[1].rsplit("@", 1)[1]) for address in recipients if "@" in parseaddr(address)[1]}
 	if not domains:
 		return None
+	# Organization names also provide stable mail aliases such as
+	# organization-a@edushield1.in without requiring a separate DNS zone.
+	local_parts = {parseaddr(address)[1].split("@", 1)[0].lower() for address in recipients if "@" in parseaddr(address)[1]}
+	organizations = db.execute(select(developer2_models.Organization)).scalars().unique().all()
+	for organization in organizations:
+		slug = re.sub(r"[^a-z0-9]+", "-", organization.name.lower()).strip("-")
+		if slug in local_parts:
+			return organization
 	organizations = db.execute(
 		select(developer2_models.Organization)
 		.join(developer2_models.OrganizationDomain)

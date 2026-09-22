@@ -534,6 +534,7 @@ def update_campaign_counts(
     which can become incorrect after repeated correlation.
     """
 
+    db.flush()
     statement = (
         select(Dev2CampaignMember)
         .where(
@@ -617,6 +618,7 @@ def create_or_update_campaign(
     if campaign is None:
 
         campaign = Dev2Campaign(
+			organization_id=fingerprint.organization_id,
             campaign_id=generate_campaign_id(),
             created_at=now,
             first_seen=now,
@@ -637,6 +639,8 @@ def create_or_update_campaign(
     # --------------------------------------------------------
 
     else:
+        if campaign.organization_id is None:
+            campaign.organization_id = fingerprint.organization_id
 
         if (
             campaign.first_seen is None
