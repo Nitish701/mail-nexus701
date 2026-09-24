@@ -4,7 +4,7 @@ import Link from 'next/link';
 
 export default async function CentralReportsPage() {
   const reportResponse = await fetchCentralReports();
-  const reports = reportResponse.reports;
+  const reports = Array.isArray(reportResponse.reports) ? reportResponse.reports : [];
 
   return (
     <AppShell
@@ -23,9 +23,9 @@ export default async function CentralReportsPage() {
       ]}
     >
       <section style={{ background: '#111827', borderRadius: 16, padding: 24, border: '1px solid #243b5b' }}>
-        <h2 style={{ margin: '0 0 16px', fontSize: 22 }}>Central reports</h2>
+        <h2 style={{ margin: '0 0 16px', fontSize: 22 }}>Investigation reports</h2>
         {reports.length === 0 ? (
-          <div style={{ color: '#9fb5d8', padding: '24px 0 8px' }}>No security reports are currently available.</div>
+          <div style={{ color: '#9fb5d8', padding: '24px 0 8px' }}>No investigation reports are available.</div>
         ) : (
           <div style={{ display: 'grid', gap: 12 }}>
             {reports.map((report) => (

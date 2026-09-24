@@ -28,6 +28,7 @@ class ParsedEmail:
 	from_domain: str | None
 	return_path: str | None
 	source_ip: str | None
+	private_relay_ips: list[str]
 	to_addresses: list[str]
 	subject: str | None
 	headers: dict[str, list[str]]
@@ -60,17 +61,43 @@ def _extract_urls(text: str) -> list[str]:
 	return urls
 
 
-def _extract_source_ip(headers: dict[str, list[str]]) -> str | None:
-	for header_name in ("x-originating-ip", "x-sender-ip", "received"):
+def _extract_source_ips(headers: dict[str, list[str]]) -> tuple[str | None, list[str]]:
+	private_ips: list[str] = []
+	proxy_headers = (
+		"cf-connecting-ip",
+		"true-client-ip",
+		"x-real-ip",
+		"x-client-ip",
+		"x-forwarded-for",
+		"x-originating-ip",
+		"x-sender-ip",
+	)
+
+	for header_name in proxy_headers:
 		for value in headers.get(header_name, []):
-			for candidate in re.findall(r"(?<![\w:])(?:\d{1,3}\.){3}\d{1,3}|(?<![\w:])[0-9a-fA-F:]{3,39}(?![\w:])", value):
-				try:
-					address = ipaddress.ip_address(candidate)
+			candidates = [item.strip() for item in value.split(",")] if header_name == "x-forwarded-for" else [value]
+			for item in candidates:
+				for candidate in re.findall(r"(?<![\w:])(?:\d{1,3}\.){3}\d{1,3}|(?<![\w:])[0-9a-fA-F:]{3,39}(?![\w:])", item):
+					try:
+						address = ipaddress.ip_address(candidate)
+					except ValueError:
+						continue
 					if address.is_global:
-						return str(address)
-				except ValueError:
-					continue
-	return None
+						return str(address), private_ips
+					if address.is_private and str(address) not in private_ips:
+						private_ips.append(str(address))
+
+	for value in headers.get("received", []):
+		for candidate in re.findall(r"(?<![\w:])(?:\d{1,3}\.){3}\d{1,3}|(?<![\w:])[0-9a-fA-F:]{3,39}(?![\w:])", value):
+			try:
+				address = ipaddress.ip_address(candidate)
+			except ValueError:
+				continue
+			if address.is_global:
+				return str(address), private_ips
+			if address.is_private and str(address) not in private_ips:
+				private_ips.append(str(address))
+	return None, private_ips
 
 
 def parse_mime(raw_message: bytes) -> ParsedEmail:
@@ -113,12 +140,14 @@ def parse_mime(raw_message: bytes) -> ParsedEmail:
 
 	subject = str(message.get("Subject", "")) or None
 	subject_and_body = "\n".join(value for value in [subject or "", *text_parts] if value)
+	source_ip, private_relay_ips = _extract_source_ips(headers)
 	return ParsedEmail(
 		message_id=message.get("Message-ID"),
 		from_address=from_address,
 		from_domain=from_domain,
 		return_path=return_path,
-		source_ip=_extract_source_ip(headers),
+		source_ip=source_ip,
+		private_relay_ips=private_relay_ips,
 		to_addresses=to_addresses,
 		subject=subject,
 		headers=headers,

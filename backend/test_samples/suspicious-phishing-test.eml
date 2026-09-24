@@ -1,0 +1,27 @@
+From: security-alert@fake-bank.example
+To: organization-a@edushield1.in
+Return-Path: <mailer@unrelated-mail.example>
+Subject: URGENT: Verify your account immediately
+Message-ID: <suspicious-phishing-test@mail-nexus.local>
+Authentication-Results: mx; spf=fail; dkim=none
+Received: from unknown-host (198.51.100.40) by mx.organization-a.example
+MIME-Version: 1.0
+Content-Type: multipart/mixed; boundary="mail-nexus-test"
+
+--mail-nexus-test
+Content-Type: text/plain; charset="utf-8"
+
+URGENT: Your account will be locked today.
+
+Verify your account password and login credentials immediately:
+http://198.51.100.40/login
+
+Please download the attached invoice.exe and complete the verification.
+
+--mail-nexus-test
+Content-Type: application/octet-stream; name="invoice.exe"
+Content-Disposition: attachment; filename="invoice.exe"
+Content-Transfer-Encoding: base64
+
+TVqQAAABAAEAAAAA
+--mail-nexus-test--

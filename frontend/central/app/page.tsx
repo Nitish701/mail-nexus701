@@ -1,5 +1,6 @@
-import { fetchCentralCampaigns, fetchCentralOverview, fetchCentralReports } from '../lib/api';
+import { fetchCentralCampaigns, fetchCentralReports } from '../lib/api';
 import Link from 'next/link';
+import { AppShell } from '../components/AppShell';
 
 const navItems = [
   { label: 'SOC Overview', href: '/' },
@@ -13,74 +14,37 @@ const navItems = [
 ];
 
 export default async function CentralHome() {
-  const [overview, reports, campaigns] = await Promise.all([fetchCentralOverview(), fetchCentralReports(), fetchCentralCampaigns()]);
-
-  const metrics = [
-    { label: 'Suspicious reports', value: String(reports.reports.length) },
-    { label: 'Active campaigns', value: String(campaigns.length) },
-    { label: 'Related colleges', value: String(new Set(campaigns.flatMap((campaign) => Array.isArray(campaign.members) ? campaign.members.map((member) => String((member as Record<string, unknown>).tenant_id)) : [])).size) },
-    { label: 'Detection coverage', value: overview.totalEmailCount ? `${Math.round((overview.suspiciousCount / overview.totalEmailCount) * 100)}%` : 'N/A' },
-    { label: 'Correlation success', value: overview.suspiciousCount ? `${Math.min(100, Math.round((campaigns.length / overview.suspiciousCount) * 100))}%` : 'N/A' }
-  ];
+  const [reports, campaigns] = await Promise.all([fetchCentralReports(), fetchCentralCampaigns()]);
+  const highRiskReports = reports.reports.filter((report) => ['high', 'critical'].includes(String(report.severity || '').toLowerCase()));
+  const organizationCount = new Set(campaigns.flatMap((campaign) => Array.isArray(campaign.members) ? campaign.members.map((member) => String((member as Record<string, unknown>).tenant_id)) : [])).size;
+  const latestCampaigns = campaigns.slice(0, 3);
+  const criticalCount = reports.reports.filter((report) => String(report.severity || '').toLowerCase() === 'critical').length;
+  const domains = new Set<string>();
+  const sourceIps = new Set<string>();
+  campaigns.forEach((campaign) => (Array.isArray(campaign.members) ? campaign.members : []).forEach((member) => {
+    const item = member as Record<string, unknown>;
+    if (item.sender_domain) domains.add(String(item.sender_domain));
+    if (item.source_ip) sourceIps.add(String(item.source_ip));
+  }));
+  const graphMembers = latestCampaigns.flatMap((campaign) => Array.isArray(campaign.members) ? campaign.members as Array<Record<string, unknown>> : []).slice(0, 6);
 
   return (
-    <main style={{ fontFamily: 'Arial, sans-serif', background: '#0f172a', minHeight: '100vh', color: '#e5f0ff', padding: '32px' }}>
-      <div style={{ maxWidth: 1280, margin: '0 auto' }}>
-        <header style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 28, gap: 16, flexWrap: 'wrap' }}>
-          <div>
-            <div style={{ fontSize: 12, letterSpacing: 1.4, textTransform: 'uppercase', color: '#8ec5ff', fontWeight: 700 }}>Mail-Nexus</div>
-            <h1 style={{ margin: '8px 0 0', fontSize: 32 }}>Central Security & Correlation SOC</h1>
-          </div>
-          <div style={{ background: '#1d4ed8', color: '#eff6ff', borderRadius: 999, padding: '10px 18px', fontWeight: 700 }}>Cross-tenant view</div>
-        </header>
-
-        <nav style={{ display: 'flex', gap: 12, flexWrap: 'wrap', marginBottom: 30 }}>
-          {navItems.map((item) => (
-            <Link key={item.label} href={item.href} style={{ background: '#111827', border: '1px solid #243b5b', borderRadius: 10, padding: '10px 16px', fontWeight: 600, color: '#e5f0ff', textDecoration: 'none' }}>{item.label}</Link>
-          ))}
-        </nav>
-
-        <section style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(180px, 1fr))', gap: 16, marginBottom: 30 }}>
-          {metrics.map((metric) => (
-            <div key={metric.label} style={{ background: '#111827', borderRadius: 14, padding: 20, border: '1px solid #243b5b' }}>
-              <div style={{ color: '#a5c3ff', fontSize: 13, marginBottom: 10 }}>{metric.label}</div>
-              <div style={{ fontSize: 22, fontWeight: 800, wordBreak: 'break-word' }}>{metric.value}</div>
-            </div>
-          ))}
+    <AppShell title="Email Threat Intelligence Center" subtitle="Detect • Correlate • Investigate" navItems={navItems}>
+        <section className="art-hero compact-hero">
+          <div className="art-hero-copy"><div className="soc-kicker">Mail-Nexus / Central SOC</div><h2>EMAIL THREAT<br /><span>INTELLIGENCE CENTER</span></h2><p>Detect <b>•</b> Correlate <b>•</b> Investigate</p><div className="art-hero-actions"><Link href="/campaigns" className="art-primary-action">Open campaign center <span>↗</span></Link><Link href="/investigations" className="art-secondary-action">Investigation queue</Link></div></div>
+          <div className="art-kpi-grid"><div className="art-kpi kpi-critical"><span>Critical threats</span><strong>{criticalCount}</strong><small>Immediate review</small></div><div className="art-kpi kpi-campaign"><span>Active campaigns</span><strong>{campaigns.length}</strong><small>Correlated clusters</small></div><div className="art-kpi kpi-org"><span>Organizations</span><strong>{organizationCount}</strong><small>Impacted</small></div><div className="art-kpi kpi-investigation"><span>Investigations</span><strong>{highRiskReports.length}</strong><small>High / critical queue</small></div></div>
         </section>
 
-        <section style={{ display: 'grid', gridTemplateColumns: '1.7fr 1fr', gap: 20, marginBottom: 20 }}>
-          <div style={{ background: '#111827', borderRadius: 16, padding: 24, border: '1px solid #243b5b' }}>
-            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 16 }}>
-              <h2 style={{ margin: 0, fontSize: 22 }}>Live threat feed</h2>
-              <span style={{ color: '#8ec5ff', fontWeight: 700 }}>Federated intelligence</span>
-            </div>
-            {reports.reports.length === 0 ? <div style={{ color: '#9fb5d8', padding: '28px 12px 8px' }}>No suspicious threat events are currently available.</div> : <div style={{ display: 'grid', gap: 10 }}>{reports.reports.slice(0, 5).map((report) => <div key={String(report.report_id)} style={{ borderTop: '1px solid #243b5b', paddingTop: 10 }}><strong>{String(report.title || 'Suspicious email')}</strong><div style={{ color: '#9fb5d8', marginTop: 4 }}>{String(report.report_id)} · {String(report.severity || 'review')}</div></div>)}</div>}
-          </div>
+        <section className="art-section-heading"><div><div className="soc-kicker">Threat operations</div><h2>Actionable security events</h2></div><Link href="/investigations" className="art-inline-link">View investigations ↗</Link></section>
+        <section className="art-queue-panel"><div className="art-queue-title"><h2>Investigation queue</h2><span className="severity-pill severity-high">{highRiskReports.length} open</span></div><div className="art-queue-list">{highRiskReports.slice(0, 4).map((report) => <Link key={String(report.report_id)} href={`/reports/${encodeURIComponent(String(report.report_id))}`} className="art-queue-item"><span className={`severity-dot severity-dot-${String(report.severity || 'high').toLowerCase()}`} /><div><strong>{String(report.title || 'Suspicious email')}</strong><small>{String(report.report_id)} · {String(report.severity || 'high')} risk</small></div><b>Investigate ↗</b></Link>)}{highRiskReports.length === 0 && <div className="art-empty-row">No high or critical investigations.</div>}</div></section>
 
-          <div style={{ background: '#13213f', borderRadius: 16, padding: 24, border: '1px solid #2d4b74' }}>
-            <h2 style={{ margin: '0 0 12px', fontSize: 22 }}>Investigation posture</h2>
-            <div style={{ display: 'grid', gap: 10, color: '#bfd4f9' }}><div>Detection coverage: <strong>{overview.totalEmailCount ? `${Math.round((overview.suspiciousCount / overview.totalEmailCount) * 100)}%` : 'N/A'}</strong></div><div>Correlation success: <strong>{overview.suspiciousCount ? `${Math.min(100, Math.round((campaigns.length / overview.suspiciousCount) * 100))}%` : 'N/A'}</strong></div><div style={{ color: '#9fb5d8', fontSize: 13 }}>Calculated from currently stored real reports and campaign records.</div></div>
-          </div>
+        <section className="art-section-heading"><div><div className="soc-kicker">Priority one</div><h2>Active campaigns</h2></div><Link href="/campaigns" className="art-inline-link">View all campaigns ↗</Link></section>
+        <section className="art-campaign-grid">
+          {latestCampaigns.length === 0 ? <div className="soc-panel art-empty-campaign">No active campaigns are currently correlated.</div> : latestCampaigns.map((campaign) => { const members = Array.isArray(campaign.members) ? campaign.members as Array<Record<string, unknown>> : []; const campaignId = String(campaign.campaign_id || 'Unknown campaign'); const similarity = members.length ? Math.round((members.reduce((total, member) => total + Number(member.similarity || 0), 0) / members.length) * 100) : 0; return <Link key={campaignId} href={`/campaigns/${encodeURIComponent(campaignId)}`} className="art-campaign-card"><div className="art-campaign-top"><span className="art-campaign-label">CORRELATED CAMPAIGN</span><span className="severity-pill severity-high">ACTIVE</span></div><strong className="art-campaign-id">{campaignId}</strong><div className="art-campaign-summary">{String(campaign.summary || `${members.length} related email fingerprints correlated across connected organizations.`)}</div><div className="art-campaign-footer"><span>{Number(campaign.tenant_count || 0)} organizations</span><span>{Number(campaign.email_count || members.length)} fingerprints</span><b>{similarity}% match</b></div></Link>; })}
         </section>
 
-        <section style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 20 }}>
-          <div style={{ background: '#111827', borderRadius: 16, padding: 24, border: '1px solid #243b5b' }}>
-            <h2 style={{ margin: '0 0 12px', fontSize: 22 }}>Tenant monitoring</h2>
-            <div style={{ color: '#9fb5d8', padding: '16px 0 8px' }}>{campaigns.length ? 'College relationships are visible through campaign memberships.' : 'No cross-college campaign relationship is currently established.'}</div>
-          </div>
-
-          <div style={{ background: '#111827', borderRadius: 16, padding: 24, border: '1px solid #243b5b' }}>
-            <h2 style={{ margin: '0 0 12px', fontSize: 22 }}>Central SOC posture</h2>
-            <p style={{ margin: '0 0 12px', color: '#bfd4f9', lineHeight: 1.7 }}>
-              This deployment is designed for campaign correlation, cross-organization intelligence, and centralized monitoring. Live data appears here after connected organization scans are received.
-            </p>
-            <div style={{ background: '#172554', borderRadius: 12, padding: 16, border: '1px solid #1d4ed8', color: '#dbeafe', fontWeight: 700 }}>
-              Authorized boundary: federated threat intelligence and relationship analysis across connected organizations
-            </div>
-          </div>
-        </section>
-      </div>
-    </main>
+        <section className="art-section-heading"><div><div className="soc-kicker">Network evidence</div><h2>Campaign correlation</h2></div><Link href="/campaign-graph" className="art-inline-link">Open full graph ↗</Link></section>
+        <section className="art-correlation"><div className="art-graph-stage"><div className="art-graph-center"><span>CAMPAIGN</span><strong>{latestCampaigns[0] ? String(latestCampaigns[0].campaign_id) : 'WAITING'}</strong></div>{graphMembers.map((member, index) => <div key={`${String(member.tenant_id)}-${index}`} className={`art-graph-node graph-pos-${index % 6}`}><span>{index % 2 ? 'ORGANIZATION' : 'EMAIL'}</span><strong>{String(member.tenant_id || member.sender_domain || 'Related entity')}</strong><small>{Math.round(Number(member.similarity || 0) * 100)}% match</small></div>)}</div><aside className="art-intel-panel"><div className="soc-kicker">Threat intelligence</div><h3>Active indicators</h3><div className="art-intel-row"><span>Malicious domains</span><strong>{domains.size}</strong></div><div className="art-intel-row"><span>Source IPs</span><strong>{sourceIps.size}</strong></div><div className="art-intel-row"><span>Correlated fingerprints</span><strong>{latestCampaigns.reduce((total, campaign) => total + Number(campaign.email_count || 0), 0)}</strong></div><Link href="/threat-intelligence" className="art-intel-link">Explore intelligence ↗</Link></aside></section>
+    </AppShell>
   );
 }

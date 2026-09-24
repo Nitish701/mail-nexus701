@@ -26,6 +26,8 @@ class FingerprintEvent(BaseModel):
         examples=["IITB"],
     )
 
+    organization_id: Optional[int] = Field(default=None, ge=1)
+
     message_id: Optional[str] = Field(
         default=None,
         max_length=255,
@@ -247,6 +249,8 @@ class FingerprintEvent(BaseModel):
         description="Unique tenant/college identifier",
         examples=["IITB"],
     )
+
+    organization_id: Optional[int] = Field(default=None, ge=1)
 
     message_id: Optional[str] = Field(
         default=None,

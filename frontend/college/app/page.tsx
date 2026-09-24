@@ -2,6 +2,8 @@ import Link from 'next/link';
 import { AppShell } from '../components/AppShell';
 import { fetchCollegeReports } from '../lib/api';
 
+const appTitle = process.env.NEXT_PUBLIC_APP_NAME || 'Mail-Nexus Organization Security Portal';
+
 const navItems = [
   { label: 'Dashboard', href: '/' },
   { label: 'Emails', href: '/emails' },
@@ -21,7 +23,8 @@ export default async function CollegeHome() {
   const safe = reports.filter((report) => report.severity.toLowerCase() === 'low').length;
 
   return (
-    <AppShell title="College security workspace" subtitle="Institutional view" navItems={navItems}>
+    <AppShell title={appTitle} subtitle="Institutional view" navItems={navItems}>
+      <section className="workspace-intro"><div><div className="eyebrow">Security intelligence</div><h2>Monitor. Detect. Correlate.</h2><p>Institutional email security through live ingestion, layered detection, and investigation-ready reporting.</p></div><div className="intro-mark">MN / 01</div></section>
       <section className="stat-grid">
         {[
           ['Emails received', reports.length],
@@ -30,7 +33,7 @@ export default async function CollegeHome() {
           ['Malicious', malicious],
           ['Safe', safe]
         ].map(([label, value]) => (
-          <div className="stat-card" key={String(label)}><label>{label}</label><strong>{value}</strong></div>
+          <div className="stat-card" key={String(label)}><span className="stat-index">{String(Number(['Emails received', 'Emails analyzed', 'Suspicious', 'Malicious', 'Safe'].indexOf(String(label))) + 1).padStart(2, '0')}</span><label>{label}</label><strong>{value}</strong></div>
         ))}
       </section>
       <section className="data-section">

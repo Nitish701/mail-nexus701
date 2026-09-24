@@ -1,5 +1,6 @@
 from datetime import datetime, timezone
 from typing import Any, Dict
+from email.utils import parseaddr
 
 from fastapi import (
     APIRouter,
@@ -46,6 +47,46 @@ router = APIRouter(
 
 def utc_now() -> datetime:
     return datetime.now(timezone.utc)
+
+
+def _sender_domain(sender: str | None) -> str | None:
+    address = parseaddr(sender or "")[1]
+    return address.rsplit("@", 1)[-1].lower() if "@" in address else None
+
+
+def _campaign_members_payload(members: list[Dev2CampaignMember]) -> list[dict[str, Any]]:
+    fingerprints = [member.fingerprint for member in members]
+    source_ip_counts: dict[str, int] = {}
+    domain_counts: dict[str, int] = {}
+    for fingerprint in fingerprints:
+        if fingerprint.source_ip:
+            source_ip_counts[fingerprint.source_ip] = source_ip_counts.get(fingerprint.source_ip, 0) + 1
+        domain = _sender_domain(fingerprint.email.sender if fingerprint.email else None)
+        if domain:
+            domain_counts[domain] = domain_counts.get(domain, 0) + 1
+
+    payload = []
+    for member in members:
+        fingerprint = member.fingerprint
+        domain = _sender_domain(fingerprint.email.sender if fingerprint.email else None)
+        reasons: list[str] = []
+        if fingerprint.source_ip and source_ip_counts.get(fingerprint.source_ip, 0) > 1:
+            reasons.append("shared source infrastructure")
+        if domain and domain_counts.get(domain, 0) > 1:
+            reasons.append("shared sender domain")
+        if member.correlation_distance is not None:
+            reasons.append(f"fingerprint distance {member.correlation_distance}")
+        payload.append({
+            "fingerprint_id": member.fingerprint_id,
+            "tenant_id": member.tenant_id,
+            "similarity": member.similarity,
+            "correlation_distance": member.correlation_distance,
+            "source_ip": fingerprint.source_ip,
+            "sender_domain": domain,
+            "observed_at": fingerprint.created_at,
+            "match_reasons": reasons or ["fingerprint similarity"],
+        })
+    return payload
 
 
 # ============================================================
@@ -397,26 +438,7 @@ def get_campaigns(
                     campaign.summary
                 ),
 
-                "members": [
-                    {
-                        "fingerprint_id": (
-                            member.fingerprint_id
-                        ),
-
-                        "tenant_id": (
-                            member.tenant_id
-                        ),
-
-                        "similarity": (
-                            member.similarity
-                        ),
-
-                        "correlation_distance": (
-                            member.correlation_distance
-                        ),
-                    }
-                    for member in members
-                ],
+                "members": _campaign_members_payload(members),
             }
         )
 
@@ -512,26 +534,7 @@ def get_campaign(
             campaign.summary
         ),
 
-        "members": [
-            {
-                "fingerprint_id": (
-                    member.fingerprint_id
-                ),
-
-                "tenant_id": (
-                    member.tenant_id
-                ),
-
-                "similarity": (
-                    member.similarity
-                ),
-
-                "correlation_distance": (
-                    member.correlation_distance
-                ),
-            }
-            for member in members
-        ],
+        "members": _campaign_members_payload(members),
     }
 
 

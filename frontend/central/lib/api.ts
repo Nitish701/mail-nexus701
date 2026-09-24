@@ -17,8 +17,12 @@ export async function fetchCentralCampaigns() {
   return readJson('/api/developer2/campaigns', [] as Array<Record<string, unknown>>);
 }
 
+export async function fetchCentralCampaignDetail(campaignId: string) {
+  return readJson(`/api/developer2/campaigns/${encodeURIComponent(campaignId)}`, null as Record<string, unknown> | null);
+}
+
 export async function fetchCentralReports() {
-  return readJson('/api/reports?suspicious_only=true', { reports: [] as Array<Record<string, unknown>> });
+  return readJson('/api/reports?report_type=email&suspicious_only=true', { reports: [] as Array<Record<string, unknown>> });
 }
 
 export async function fetchCentralSuspiciousReports() {
@@ -26,7 +30,11 @@ export async function fetchCentralSuspiciousReports() {
 }
 
 export async function fetchCentralOrganizationReports(organizationId: number) {
-  return readJson(`/api/reports?suspicious_only=true&organization_id=${organizationId}`, { reports: [] as Array<Record<string, unknown>> });
+  return readJson(`/api/reports?report_type=email&suspicious_only=true&organization_id=${organizationId}`, { reports: [] as Array<Record<string, unknown>> });
+}
+
+export async function fetchCentralOrganizations() {
+  return readJson('/api/organizations', [] as Array<{ id: number; name: string; domains: string[] }>);
 }
 
 export async function fetchCentralReportDetails(reportId: string) {

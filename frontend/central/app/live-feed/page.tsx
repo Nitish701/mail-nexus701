@@ -18,9 +18,9 @@ export default async function CentralLiveFeedPage() {
         { label: 'System Health', href: '/system-health' }
       ]}
     >
-      <section style={{ background: '#111827', borderRadius: 16, padding: 24, border: '1px solid #243b5b' }}>
-        <h2 style={{ margin: '0 0 16px', fontSize: 22 }}>Live threat feed</h2>
-        {reports.length === 0 ? <div style={{ color: '#9fb5d8', padding: '24px 0 8px' }}>No suspicious threat events are currently available.</div> : <div style={{ display: 'grid', gap: 12 }}>{reports.map((report) => <div key={String(report.report_id)} style={{ borderTop: '1px solid #243b5b', paddingTop: 12 }}><strong>{String(report.title || 'Suspicious email')}</strong><div style={{ color: '#9fb5d8', marginTop: 4 }}>{String(report.report_id)} · {String(report.severity || 'review')}</div></div>)}</div>}
+      <section className="soc-panel">
+        <div className="soc-panel-heading"><h2 className="live-title"><span className="status-dot" />Live threat feed</h2><small>Real-time investigation queue</small></div>
+        {reports.length === 0 ? <div className="soc-feed">No suspicious threat events are currently available.</div> : <div className="soc-feed">{reports.map((report) => { const severity = String(report.severity || 'low').toLowerCase(); return <div key={String(report.report_id)} className="soc-feed-item"><span className="soc-feed-title">{String(report.title || 'Suspicious email')}</span><span className="soc-feed-meta"><span className={`severity-pill severity-${severity}`}>{severity}</span>{String(report.report_id)}</span></div>; })}</div>}
       </section>
     </AppShell>
   );

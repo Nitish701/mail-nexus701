@@ -3,6 +3,7 @@ from __future__ import annotations
 import uuid
 from datetime import datetime, timedelta, timezone
 from typing import Dict, List, Optional, Set, Tuple
+from email.utils import parseaddr
 
 from sqlalchemy import select
 from sqlalchemy.orm import Session
@@ -42,6 +43,12 @@ def utc_now() -> datetime:
     """
 
     return datetime.now(timezone.utc)
+
+
+def _comparison_datetime(value: Optional[datetime]) -> Optional[datetime]:
+    if value is None:
+        return None
+    return value.replace(tzinfo=None) if value.tzinfo else value
 
 
 # ============================================================
@@ -262,6 +269,27 @@ def compare_fingerprint(
     Returns a match dictionary only if the TLSH distance
     falls within the configured threshold.
     """
+
+    current_domain = None
+    candidate_domain = None
+    if current.email and current.email.sender and "@" in current.email.sender:
+        current_domain = parseaddr(current.email.sender)[1].rsplit("@", 1)[-1].lower()
+    if candidate.email and candidate.email.sender and "@" in candidate.email.sender:
+        candidate_domain = parseaddr(candidate.email.sender)[1].rsplit("@", 1)[-1].lower()
+    shared_ip = bool(current.source_ip and candidate.source_ip and current.source_ip == candidate.source_ip)
+    shared_domain = bool(current_domain and candidate_domain and current_domain == candidate_domain)
+    if shared_ip or shared_domain:
+        distance = 0
+        similarity = 0.95 if shared_ip else 0.88
+        location_match, location_bonus = geo_match(current, candidate)
+        return {
+            "fingerprint": candidate,
+            "distance": distance,
+            "similarity": round(min(1.0, similarity + location_bonus), 4),
+            "geo_match": location_match,
+            "geo_bonus": location_bonus,
+            "match_reason": "shared source IP" if shared_ip else "shared sender domain",
+        }
 
     distance = calculate_tlsh_difference(
         current.fingerprint_hash,
@@ -642,15 +670,18 @@ def create_or_update_campaign(
         if campaign.organization_id is None:
             campaign.organization_id = fingerprint.organization_id
 
+        comparable_now = _comparison_datetime(now)
+        comparable_first_seen = _comparison_datetime(campaign.first_seen)
+        comparable_last_seen = _comparison_datetime(campaign.last_seen)
         if (
             campaign.first_seen is None
-            or now < campaign.first_seen
+            or comparable_now < comparable_first_seen
         ):
             campaign.first_seen = now
 
         if (
             campaign.last_seen is None
-            or now > campaign.last_seen
+            or comparable_now > comparable_last_seen
         ):
             campaign.last_seen = now
 

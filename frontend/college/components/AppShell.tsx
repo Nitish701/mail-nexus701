@@ -14,7 +14,7 @@ export function AppShell({
   subtitle,
   navItems,
   children,
-  accent = '#3c6bb3'
+  accent = '#f08a4b'
 }: {
   title: string;
   subtitle: string;
@@ -23,6 +23,7 @@ export function AppShell({
   accent?: string;
 }) {
   const context = getCollegeContext();
+  const appName = process.env.NEXT_PUBLIC_APP_NAME || 'Mail-Nexus Organization Security Portal';
   return (
     <main className="app-shell">
       <div style={{ maxWidth: 1280, margin: '0 auto' }}>
@@ -33,13 +34,13 @@ export function AppShell({
             <h1>{title}</h1>
             {context && <div className="college-context">{context.collegeName} <span>{context.domain}</span></div>}
           </div>
-          <div className="shell-subtitle">{subtitle}</div>
+          <div className="shell-identity"><strong>{context?.collegeName || appName}</strong><span>{subtitle}</span></div>
         </header>
 
         <nav className="shell-nav" aria-label="College navigation">
-          {navItems.map((item) => (
+          {navItems.map((item, index) => (
             <Link key={item.label} href={item.href} className="nav-link">
-              {item.label}
+              <span>{String(index + 1).padStart(2, '0')}</span>{item.label}
             </Link>
           ))}
         </nav>

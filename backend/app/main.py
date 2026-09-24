@@ -13,7 +13,7 @@ from app.config import COLLEGE_DOMAINS, CORS_ORIGINS, LAYER_TIMEOUT_SECONDS, MOD
 from app.developer2.database import Base, engine, get_db
 from app.developer2 import models as developer2_models
 from app.developer2.router import router as developer2_router, submit_fingerprint
-from app.developer2.geo import enrich_ip
+from app.developer2.geo import enrich_ip, private_relay_note
 from app.developer2.schemas import FingerprintEvent
 from app.reports.router import router as reports_router
 from app.services import report_generator, report_store
@@ -187,6 +187,7 @@ async def inbound_email(request: Request, db: Session = Depends(get_db)) -> Inbo
 		raise HTTPException(status_code=400, detail="Invalid MIME payload") from error
 	organization = _organization_for_recipients(db, parsed.to_addresses)
 	geo = await enrich_ip(parsed.source_ip)
+	private_relay = private_relay_note(parsed.private_relay_ips)
 
 	authentication = validate_authentication(parsed)
 	heuristic_findings, heuristic_score = scan_heuristics(parsed)
@@ -196,6 +197,10 @@ async def inbound_email(request: Request, db: Session = Depends(get_db)) -> Inbo
 		_scan_static_with_budget(parsed.attachments),
 	)
 	base_score = min(authentication_score + heuristic_score + ml_result.score + static_result.score, 70)
+	if geo and geo.is_vpn_proxy:
+		heuristic_findings.append("VPN/proxy/tor sending infrastructure detected")
+		heuristic_score = min(heuristic_score + 10, 40)
+		base_score = min(base_score + 10, 70)
 	fingerprint = build_email_fingerprint(parsed)
 	all_findings = heuristic_findings + static_result.findings
 	advisory = await generate_threat_advisory(base_score, all_findings, fingerprint.redacted_body)
@@ -239,6 +244,7 @@ async def inbound_email(request: Request, db: Session = Depends(get_db)) -> Inbo
 			"asn": geo.asn if geo else None,
 			"is_vpn_proxy": geo.is_vpn_proxy if geo else None,
 			"confidence": geo.confidence if geo else 0.0,
+			**private_relay,
 		}
 		report = report_generator.build_email_report(report_payload, report_id)
 		report["organization_id"] = organization.id if organization else None
@@ -261,6 +267,7 @@ async def inbound_email(request: Request, db: Session = Depends(get_db)) -> Inbo
 					fingerprint_hash=response.fingerprint.tlsh or response.fingerprint.body_sha256,
 					fingerprint_type="TLSH" if response.fingerprint.tlsh else "SHA256",
 					risk_score=base_score,
+					source_ip=parsed.source_ip,
 				),
 				db,
 			)

@@ -2,6 +2,7 @@
 
 from fastapi.testclient import TestClient
 
+from app.engine.parser import parse_mime
 from app.main import app
 
 client = TestClient(app)

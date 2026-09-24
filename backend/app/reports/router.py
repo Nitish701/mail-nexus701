@@ -47,8 +47,7 @@ def list_reports(
 	if suspicious_only:
 		filtered: list[dict] = []
 		for report in reports:
-			if report.get("report_type") == "campaign":
-				filtered.append(report)
+			if report.get("report_type") != "email":
 				continue
 			detail = report_store.get_report(db, report["report_id"]) or {}
 			risk = detail.get("risk") or {}

@@ -1,8 +1,11 @@
 import { AppShell } from '../../components/AppShell';
 import { fetchCentralCampaigns } from '../../lib/api';
+import Link from 'next/link';
 
 export default async function CentralCampaignsPage() {
   const campaigns = await fetchCentralCampaigns();
+
+  const safeCampaigns = Array.isArray(campaigns) ? campaigns.filter((campaign) => campaign && typeof campaign === 'object') : [];
 
   return (
     <AppShell
@@ -21,27 +24,28 @@ export default async function CentralCampaignsPage() {
     >
       <section style={{ background: '#111827', borderRadius: 16, padding: 24, border: '1px solid #243b5b' }}>
         <h2 style={{ margin: '0 0 16px', fontSize: 22 }}>Cross-tenant campaigns</h2>
-        {campaigns.length === 0 ? (
+        {safeCampaigns.length === 0 ? (
           <div style={{ color: '#9fb5d8', padding: '24px 0 8px' }}>No campaigns are currently available.</div>
         ) : (
           <div style={{ display: 'grid', gap: 14 }}>
-            {campaigns.map((campaign) => {
-              const severity = String(campaign.status || 'Unknown');
+            {safeCampaigns.map((campaign) => {
+              const status = String(campaign.status || 'ACTIVE');
               const members = Array.isArray(campaign.members) ? campaign.members as Array<Record<string, unknown>> : [];
+              const campaignId = String(campaign.campaign_id || 'unknown-campaign');
+              const tenantCount = Number(campaign.tenant_count || new Set(members.map((member) => String(member.tenant_id))).size || 0);
+              const emailCount = Number(campaign.email_count || members.length || 0);
+              const similarities = members.map((member) => Number(member.similarity || 0)).filter((value) => Number.isFinite(value));
+              const averageSimilarity = similarities.length ? Math.round((similarities.reduce((total, value) => total + value, 0) / similarities.length) * 100) : 0;
+              const summary = String(campaign.summary || `Correlated campaign spanning ${tenantCount} tenant(s) and ${emailCount} email fingerprint(s). Average similarity ${averageSimilarity}%.`);
               return (
-            <div key={String(campaign.campaign_id)} style={{ border: '1px solid #243b5b', borderRadius: 12, padding: 16, background: '#0b1221' }}>
-              <div style={{ display: 'flex', justifyContent: 'space-between', flexWrap: 'wrap', gap: 12 }}>
-                <div>
-                  <div style={{ fontWeight: 700, fontSize: 18 }}>{String(campaign.campaign_id || 'Unnamed campaign')}</div>
-                  <div style={{ color: '#9fb5d8', marginTop: 4 }}>{Number(campaign.tenant_count || 0)} organizations impacted</div>
-                </div>
-                <div style={{ display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap' }}>
-                  <span style={{ color: '#8ec5ff', fontWeight: 700 }}>{severity}</span>
-                  <span style={{ color: '#8ec5ff', fontWeight: 700 }}>{Number(campaign.email_count || 0)} emails</span>
-                </div>
-              <div style={{ marginTop: 14, color: '#9fb5d8', fontSize: 13 }}>Relationship map: {members.length ? members.map((member) => `${String(member.tenant_id)} (${Math.round(Number(member.similarity || 0) * 100)}% similarity)`).join(' · ') : 'No member relationship data'}</div>
-              </div>
-            </div>
+                <Link key={campaignId} href={`/campaigns/${encodeURIComponent(campaignId)}`} className="campaign-list-card">
+                  <div className="campaign-list-head">
+                    <div><div className="campaign-list-kicker">Campaign</div><div className="campaign-list-id">{campaignId}</div></div>
+                    <span className="campaign-status">{status}</span>
+                  </div>
+                  <div className="campaign-list-stats"><div><strong>{tenantCount}</strong><span>Organizations</span></div><div><strong>{emailCount}</strong><span>Email fingerprints</span></div><div><strong>{String(campaign.first_seen || 'Unknown')}</strong><span>First seen</span></div><div><strong>{String(campaign.last_seen || 'Unknown')}</strong><span>Last seen</span></div></div>
+                  <div className="campaign-list-summary"><span>Assessment</span>{summary}</div>
+                </Link>
               );
             })}
           </div>

@@ -8,6 +8,7 @@ const STORAGE_KEY = 'mail-nexus-college-context';
 type CollegeContext = { organizationId: number | null; domain: string; collegeName: string };
 
 export function CollegeDomainGate({ children }: { children: ReactNode }) {
+  const appName = process.env.NEXT_PUBLIC_APP_NAME || 'Mail-Nexus Organization Security Portal';
   const [context, setContext] = useState<CollegeContext | null>(null);
   const [domain, setDomain] = useState('college-example.edu.in');
   const [busy, setBusy] = useState(false);
@@ -79,7 +80,7 @@ export function CollegeDomainGate({ children }: { children: ReactNode }) {
       <section className="domain-panel">
         <div className="live-indicator"><span className="live-dot" /> LIVE</div>
         <div className="eyebrow">Mail Nexus</div>
-        <h1>College security access</h1>
+        <h1>{appName}</h1>
         <p>Enter your institutional domain to open its email security workspace.</p>
         {!registering ? <form onSubmit={verify} className="domain-form">
           <label htmlFor="college-domain">College domain</label>

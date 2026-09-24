@@ -1,10 +1,35 @@
+'use client';
+
 import Link from 'next/link';
 import type { ReactNode } from 'react';
+import { useState } from 'react';
 
 type NavItem = {
   label: string;
   href: string;
 };
+
+const navIcons: Record<string, string> = {
+  'SOC Overview': '⌂',
+  'Live Feed': '◉',
+  Campaigns: '◎',
+  Investigations: '⌕',
+  'Threat Intelligence': '◇',
+  Tenants: '◌',
+  Reports: '▤',
+  'System Health': '◈'
+};
+
+function activePath(title: string): string {
+  if (title.includes('Campaign')) return title.includes('Graph') ? '/campaign-graph' : '/campaigns';
+  if (title.includes('Live')) return '/live-feed';
+  if (title.includes('Report')) return '/reports';
+  if (title.includes('Investigation')) return '/investigations';
+  if (title.includes('Threat')) return '/threat-intelligence';
+  if (title.includes('Organization')) return '/tenants';
+  if (title.includes('Health')) return '/system-health';
+  return '/';
+}
 
 export function AppShell({
   title,
@@ -19,26 +44,29 @@ export function AppShell({
   children: ReactNode;
   accent?: string;
 }) {
+  const [collapsed, setCollapsed] = useState(false);
+  const iconFor = (label: string) => navIcons[label] || '•';
   return (
-    <main style={{ fontFamily: 'Arial, sans-serif', background: '#0f172a', minHeight: '100vh', color: '#e5f0ff', padding: '32px' }}>
-      <div style={{ maxWidth: 1280, margin: '0 auto' }}>
-        <header style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 28, gap: 16, flexWrap: 'wrap' }}>
-          <div>
-            <div style={{ fontSize: 12, letterSpacing: 1.4, textTransform: 'uppercase', color: accent, fontWeight: 700 }}>Mail-Nexus</div>
-            <h1 style={{ margin: '8px 0 0', fontSize: 32 }}>{title}</h1>
-          </div>
-          <div style={{ background: '#1d4ed8', color: '#eff6ff', borderRadius: 999, padding: '10px 18px', fontWeight: 700 }}>{subtitle}</div>
-        </header>
-
-        <nav style={{ display: 'flex', gap: 12, flexWrap: 'wrap', marginBottom: 30 }}>
-          {navItems.map((item) => (
-            <Link key={item.label} href={item.href} style={{ background: '#111827', border: '1px solid #243b5b', borderRadius: 10, padding: '10px 16px', fontWeight: 600, color: '#e5f0ff', textDecoration: 'none' }}>
-              {item.label}
+    <main className={`soc-shell ${collapsed ? 'soc-sidebar-collapsed' : ''}`}>
+      <aside className="soc-sidebar">
+        <div className="soc-brand"><span className="soc-brand-mark">M</span><span className="soc-brand-copy">MAIL-NEXUS<small>CENTRAL SOC</small></span></div>
+        <button type="button" className="soc-collapse" onClick={() => setCollapsed((value) => !value)} aria-label={collapsed ? 'Expand navigation' : 'Collapse navigation'}>{collapsed ? '›' : '‹'}</button>
+        <div className="soc-sidebar-label">Workspace</div>
+        <nav className="soc-sidebar-nav" aria-label="Central SOC navigation">
+          {navItems.filter((item) => item.label !== 'Campaign Graph').map((item) => (
+            <Link key={item.label} href={item.href} className="soc-nav-link" aria-current={activePath(title) === item.href ? 'page' : undefined} title={item.label}>
+              <span className="soc-nav-icon" aria-hidden="true">{iconFor(item.label)}</span><span className="soc-nav-text">{item.label}</span>
             </Link>
           ))}
         </nav>
-
-        {children}
+        <div className="soc-sidebar-footer"><span className="status-dot" /><span className="soc-nav-text">Systems operational</span></div>
+      </aside>
+      <div className="soc-main">
+        <header className="soc-topbar"><div className="soc-breadcrumb"><span>Central SOC</span><b>/</b><strong>{title}</strong></div><div className="soc-top-actions"><div className="soc-search">⌕ <span>Search investigations</span><kbd>⌘ K</kbd></div><button className="soc-icon-button" type="button" aria-label="Notifications">♢<i /></button><div className="soc-avatar">NS</div></div></header>
+        <div className="soc-container">
+          <header className="soc-header"><div><div className="soc-kicker" style={{ color: accent }}>MAIL-NEXUS / CENTRAL SECURITY</div><h1>{title}</h1><p className="soc-subtitle">{subtitle}</p></div><div className="soc-view-badge"><span className="status-dot" />Live environment</div></header>
+          {children}
+        </div>
       </div>
     </main>
   );

@@ -19,6 +19,7 @@ class GeoIntel:
 	asn: str | None = None
 	is_vpn_proxy: bool = False
 	confidence: float = 0.0
+	internal_relay: bool = False
 
 
 def _public_ip(value: str | None) -> ipaddress._BaseAddress | None:
@@ -83,6 +84,10 @@ async def enrich_ip(source_ip: str | None) -> GeoIntel | None:
 	if not any(result[key] for key in ("country", "region", "city", "asn")) and not result["is_vpn_proxy"]:
 		return None
 	return GeoIntel(source_ip=str(address), **result)
+
+
+def private_relay_note(private_ips: list[str]) -> dict[str, object]:
+	return {"internal_relay": bool(private_ips), "private_ips": private_ips, "note": "Private relay hop requires organization-side verification." if private_ips else None}
 
 
 def geo_match(current: GeoIntel | object, candidate: object) -> tuple[bool, float]:
