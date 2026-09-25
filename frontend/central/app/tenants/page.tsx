@@ -1,15 +1,14 @@
 import Link from 'next/link';
 import { AppShell } from '../../components/AppShell';
 import { fetchCentralOrganizationReports, fetchCentralOrganizations } from '../../lib/api';
-
-const navItems = [{ label: 'SOC Overview', href: '/' }, { label: 'Live Feed', href: '/live-feed' }, { label: 'Campaigns', href: '/campaigns' }, { label: 'Investigations', href: '/investigations' }, { label: 'Threat Intelligence', href: '/threat-intelligence' }, { label: 'Tenants', href: '/tenants' }, { label: 'Reports', href: '/reports' }, { label: 'System Health', href: '/system-health' }];
+import { CENTRAL_NAV } from '../../lib/nav';
 
 export default async function CentralTenantsPage({ searchParams }: { searchParams?: { organization?: string } }) {
   const organizations = await fetchCentralOrganizations();
   const selected = organizations.find((item) => String(item.id) === searchParams?.organization) || organizations[0];
   const reports = selected ? (await fetchCentralOrganizationReports(selected.id)).reports : [];
 
-  return <AppShell title="Organizations" subtitle="Central organization view" navItems={navItems}>
+  return <AppShell title="Organizations" subtitle="Central organization view" navItems={[...CENTRAL_NAV]}>
     <section style={{ background: '#111827', border: '1px solid #243b5b', padding: 24 }}>
       <div style={{ marginBottom: 20 }}><h2 style={{ margin: 0, fontSize: 22 }}>Organization workspaces</h2><p style={{ color: '#9fb5d8', marginBottom: 0 }}>Live registered organizations and their isolated suspicious-report scopes.</p></div>
       <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(220px, 1fr))', gap: 14 }}>

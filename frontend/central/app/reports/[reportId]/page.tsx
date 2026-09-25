@@ -1,8 +1,7 @@
 import Link from 'next/link';
 import { AppShell } from '../../../components/AppShell';
 import { fetchCentralReportDetails } from '../../../lib/api';
-
-const navItems = [{ label: 'SOC Overview', href: '/' }, { label: 'Live Feed', href: '/live-feed' }, { label: 'Campaigns', href: '/campaigns' }, { label: 'Investigations', href: '/investigations' }, { label: 'Threat Intelligence', href: '/threat-intelligence' }, { label: 'Reports', href: '/reports' }];
+import { CENTRAL_NAV } from '../../../lib/nav';
 
 function Field({ label, value }: { label: string; value: unknown }) { return <div className="report-field"><div className="report-field-label">{label}</div><div className="report-field-value">{value == null || value === '' ? 'Not available' : typeof value === 'object' ? JSON.stringify(value, null, 2) : String(value)}</div></div>; }
 function Section({ title, children }: { title: string; children: React.ReactNode }) { return <section className="report-section"><h3>{title}</h3>{children}</section>; }
@@ -25,7 +24,7 @@ export default async function CentralReportDetailPage({ params }: { params: { re
   const risk = report?.risk as Record<string, unknown> | undefined;
   const geo = report?.geolocation as Record<string, unknown> | undefined;
   const fingerprint = report?.fingerprint as Record<string, unknown> | undefined;
-  return <AppShell title="Central investigation report" subtitle="Formal investigation" navItems={navItems}>
+  return <AppShell title="Central investigation report" subtitle="Formal investigation" navItems={[...CENTRAL_NAV]}>
     <div className="report-detail-layout"><Link href="/reports" className="report-back-link">Back to reports</Link>{report ? <>
       <header className="report-hero"><div className="report-hero-kicker">MAIL-NEXUS / CENTRAL INVESTIGATION</div><h2>{String(report.title || params.reportId)}</h2><div className="report-hero-meta">{params.reportId} · Suspicious activity shared for central correlation</div></header>
       <div className="report-stat-grid"><div className="central-report-stat"><small>Status</small><strong>UNDER REVIEW</strong></div><div className="central-report-stat"><small>Severity</small><strong>{String(report.severity || 'Unknown')}</strong></div><div className="central-report-stat"><small>Risk score</small><strong>{String(risk?.base_score ?? 'N/A')} / 70</strong></div><div className="central-report-stat"><small>Source</small><strong>Organization {String(report.organization_id || 'scoped')}</strong></div></div>

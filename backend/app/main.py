@@ -104,6 +104,27 @@ def _organization_for_recipients(db: Session, recipients: list[str]) -> develope
 	return organizations[0] if len(organizations) == 1 else None
 
 
+def _ingestion_recipients(request: Request, parsed_recipients: list[str]) -> list[str]:
+	"""Use Cloudflare's envelope recipient when the RFC822 To header differs."""
+	recipients = list(parsed_recipients)
+	envelope = request.headers.get("x-mail-nexus-to", "")
+	if envelope:
+		address = parseaddr(envelope)[1]
+		if address:
+			recipients.append(address)
+	return list(dict.fromkeys(address.strip().lower() for address in recipients if address.strip()))
+
+
+def _tenant_id(organization: developer2_models.Organization | None, recipients: list[str], request: Request) -> str:
+	if organization:
+		return f"organization:{organization.id}"
+	for address in recipients:
+		parsed_address = parseaddr(address)[1]
+		if "@" in parsed_address:
+			return f"domain:{parsed_address.rsplit('@', 1)[1].lower()}"
+	return request.headers.get("x-mail-nexus-tenant-id", "unassigned")
+
+
 @app.post("/api/organizations")
 async def register_organization(payload: dict[str, object], db: Session = Depends(get_db)) -> dict[str, object]:
 	name = str(payload.get("name", "")).strip()
@@ -185,7 +206,9 @@ async def inbound_email(request: Request, db: Session = Depends(get_db)) -> Inbo
 	except Exception as error:
 		logger.warning("Rejected malformed MIME email", exc_info=error)
 		raise HTTPException(status_code=400, detail="Invalid MIME payload") from error
-	organization = _organization_for_recipients(db, parsed.to_addresses)
+	recipients = _ingestion_recipients(request, parsed.to_addresses)
+	organization = _organization_for_recipients(db, recipients)
+	tenant_id = _tenant_id(organization, recipients, request)
 	geo = await enrich_ip(parsed.source_ip)
 	private_relay = private_relay_note(parsed.private_relay_ips)
 
@@ -209,7 +232,7 @@ async def inbound_email(request: Request, db: Session = Depends(get_db)) -> Inbo
 	response = InboundEmailResponse(
 		message_id=parsed.message_id,
 		from_address=parsed.from_address,
-		to_addresses=parsed.to_addresses,
+				to_addresses=recipients,
 		subject=parsed.subject,
 		headers=parsed.headers,
 		urls=parsed.urls,
@@ -257,11 +280,11 @@ async def inbound_email(request: Request, db: Session = Depends(get_db)) -> Inbo
 		try:
 			await submit_fingerprint(
 				FingerprintEvent(
-					tenant_id=f"organization:{organization.id}" if organization else request.headers.get("x-mail-nexus-tenant-id", "unassigned"),
+					tenant_id=tenant_id,
 					organization_id=organization.id if organization else None,
 					message_id=response.message_id,
 					sender=response.from_address,
-					recipient=response.to_addresses[0] if response.to_addresses else None,
+					recipient=recipients[0] if recipients else None,
 					subject=response.subject,
 					body=response.fingerprint.redacted_body,
 					fingerprint_hash=response.fingerprint.tlsh or response.fingerprint.body_sha256,

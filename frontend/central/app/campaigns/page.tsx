@@ -1,56 +1,131 @@
-import { AppShell } from '../../components/AppShell';
-import { fetchCentralCampaigns } from '../../lib/api';
+'use client';
+
 import Link from 'next/link';
+import { useEffect, useState } from 'react';
+import { AppShell } from '../../components/AppShell';
+import { CampaignGraph } from '../../components/CampaignGraph';
+import { ViewToggle } from '../../components/ViewToggle';
+import { CENTRAL_NAV } from '../../lib/nav';
 
-export default async function CentralCampaignsPage() {
-  const campaigns = await fetchCentralCampaigns();
+const API_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000';
 
-  const safeCampaigns = Array.isArray(campaigns) ? campaigns.filter((campaign) => campaign && typeof campaign === 'object') : [];
+async function loadCampaigns() {
+  try {
+    const res = await fetch(`${API_URL}/api/developer2/campaigns`, { cache: 'no-store' });
+    if (!res.ok) return [] as Array<Record<string, unknown>>;
+    return (await res.json()) as Array<Record<string, unknown>>;
+  } catch {
+    return [] as Array<Record<string, unknown>>;
+  }
+}
+
+export default function CampaignsPage() {
+  const [view, setView] = useState<'list' | 'graph'>('list');
+  const [campaigns, setCampaigns] = useState<Array<Record<string, unknown>>>([]);
+  const [loading, setLoading] = useState(true);
+
+  useEffect(() => {
+    let cancelled = false;
+    (async () => {
+      const data = await loadCampaigns();
+      if (!cancelled) {
+        setCampaigns(data);
+        setLoading(false);
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, []);
 
   return (
     <AppShell
-      title="Central Security & Correlation SOC"
-      subtitle="Cross-tenant view"
-      navItems={[
-        { label: 'SOC Overview', href: '/' },
-        { label: 'Live Feed', href: '/live-feed' },
-        { label: 'Campaigns', href: '/campaigns' },
-        { label: 'Investigations', href: '/investigations' },
-        { label: 'Threat Intelligence', href: '/threat-intelligence' },
-        { label: 'Tenants', href: '/tenants' },
-        { label: 'Reports', href: '/reports' },
-        { label: 'System Health', href: '/system-health' }
-      ]}
+      title="Campaign center"
+      subtitle="Cross-tenant correlated phishing campaigns · list & graph"
+      navItems={[...CENTRAL_NAV]}
+      actions={<ViewToggle value={view} onChange={setView} />}
     >
-      <section style={{ background: '#111827', borderRadius: 16, padding: 24, border: '1px solid #243b5b' }}>
-        <h2 style={{ margin: '0 0 16px', fontSize: 22 }}>Cross-tenant campaigns</h2>
-        {safeCampaigns.length === 0 ? (
-          <div style={{ color: '#9fb5d8', padding: '24px 0 8px' }}>No campaigns are currently available.</div>
-        ) : (
-          <div style={{ display: 'grid', gap: 14 }}>
-            {safeCampaigns.map((campaign) => {
-              const status = String(campaign.status || 'ACTIVE');
-              const members = Array.isArray(campaign.members) ? campaign.members as Array<Record<string, unknown>> : [];
-              const campaignId = String(campaign.campaign_id || 'unknown-campaign');
-              const tenantCount = Number(campaign.tenant_count || new Set(members.map((member) => String(member.tenant_id))).size || 0);
-              const emailCount = Number(campaign.email_count || members.length || 0);
-              const similarities = members.map((member) => Number(member.similarity || 0)).filter((value) => Number.isFinite(value));
-              const averageSimilarity = similarities.length ? Math.round((similarities.reduce((total, value) => total + value, 0) / similarities.length) * 100) : 0;
-              const summary = String(campaign.summary || `Correlated campaign spanning ${tenantCount} tenant(s) and ${emailCount} email fingerprint(s). Average similarity ${averageSimilarity}%.`);
+      {loading ? (
+        <div className="art-empty-state">Loading campaigns…</div>
+      ) : view === 'graph' ? (
+        <CampaignGraph campaigns={campaigns} />
+      ) : campaigns.length === 0 ? (
+        <div className="art-empty-state">
+          No campaigns detected yet. When tenant fingerprints share TLSH / IOC similarity, they will
+          appear here as correlated campaigns.
+        </div>
+      ) : (
+        <>
+          <section className="page-toolbar">
+            <div>
+              <div className="soc-kicker">Correlation engine</div>
+              <h2 className="page-section-title">{campaigns.length} active campaigns</h2>
+            </div>
+            <button type="button" className="btn-ghost" onClick={() => setView('graph')}>
+              Open graph view →
+            </button>
+          </section>
+
+          <div className="campaign-list">
+            {campaigns.map((campaign) => {
+              const members = Array.isArray(campaign.members)
+                ? (campaign.members as Array<Record<string, unknown>>)
+                : [];
+              const campaignId = String(campaign.campaign_id || 'unknown');
+              const avgSim = members.length
+                ? Math.round(
+                    (members.reduce((t, m) => t + Number(m.similarity || 0), 0) / members.length) *
+                      100
+                  )
+                : 0;
+              const tenants = new Set(
+                members.map((m) => String(m.tenant_id || m.organization || 'unknown'))
+              );
+
               return (
-                <Link key={campaignId} href={`/campaigns/${encodeURIComponent(campaignId)}`} className="campaign-list-card">
+                <Link
+                  key={campaignId}
+                  href={`/campaigns/${encodeURIComponent(campaignId)}`}
+                  className="campaign-list-card"
+                >
                   <div className="campaign-list-head">
-                    <div><div className="campaign-list-kicker">Campaign</div><div className="campaign-list-id">{campaignId}</div></div>
-                    <span className="campaign-status">{status}</span>
+                    <div>
+                      <div className="campaign-list-kicker">CAMPAIGN ID</div>
+                      <div className="campaign-list-id">{campaignId}</div>
+                    </div>
+                    <span className="campaign-status">ACTIVE</span>
                   </div>
-                  <div className="campaign-list-stats"><div><strong>{tenantCount}</strong><span>Organizations</span></div><div><strong>{emailCount}</strong><span>Email fingerprints</span></div><div><strong>{String(campaign.first_seen || 'Unknown')}</strong><span>First seen</span></div><div><strong>{String(campaign.last_seen || 'Unknown')}</strong><span>Last seen</span></div></div>
-                  <div className="campaign-list-summary"><span>Assessment</span>{summary}</div>
+                  <div className="campaign-list-stats">
+                    <div>
+                      <strong>{Number(campaign.email_count || members.length)}</strong>
+                      <span>Fingerprints</span>
+                    </div>
+                    <div>
+                      <strong>{Number(campaign.tenant_count || tenants.size)}</strong>
+                      <span>Organizations</span>
+                    </div>
+                    <div>
+                      <strong>{avgSim}%</strong>
+                      <span>Avg similarity</span>
+                    </div>
+                    <div>
+                      <strong>{String(campaign.first_seen || campaign.created_at || '—')}</strong>
+                      <span>First seen</span>
+                    </div>
+                  </div>
+                  <div className="campaign-list-summary">
+                    <span>Summary</span>
+                    {String(
+                      campaign.summary ||
+                        `Correlated cluster of ${members.length} fingerprints across ${tenants.size} organizations.`
+                    )}
+                  </div>
                 </Link>
               );
             })}
           </div>
-        )}
-      </section>
+        </>
+      )}
     </AppShell>
   );
 }

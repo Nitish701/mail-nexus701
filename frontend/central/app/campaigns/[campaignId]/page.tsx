@@ -1,18 +1,7 @@
 import Link from 'next/link';
 import { AppShell } from '../../../components/AppShell';
 import { fetchCentralCampaignDetail } from '../../../lib/api';
-
-const navItems = [
-  { label: 'SOC Overview', href: '/' },
-  { label: 'Live Feed', href: '/live-feed' },
-  { label: 'Campaigns', href: '/campaigns' },
-  { label: 'Campaign Graph', href: '/campaign-graph' },
-  { label: 'Investigations', href: '/investigations' },
-  { label: 'Threat Intelligence', href: '/threat-intelligence' },
-  { label: 'Tenants', href: '/tenants' },
-  { label: 'Reports', href: '/reports' },
-  { label: 'System Health', href: '/system-health' }
-];
+import { CENTRAL_NAV } from '../../../lib/nav';
 
 type CampaignMember = { tenant_id?: string | number; similarity?: number; correlation_distance?: number; source_ip?: string; sender_domain?: string; observed_at?: string; match_reasons?: string[] };
 
@@ -21,7 +10,7 @@ export default async function CampaignDetailPage({ params }: { params: { campaig
 
   if (!campaign) {
     return (
-      <AppShell title="Campaign detail" subtitle="No campaign found" navItems={navItems}>
+      <AppShell title="Campaign detail" subtitle="No campaign found" navItems={[...CENTRAL_NAV]}>
         <section style={{ background: '#111827', border: '1px solid #243b5b', padding: 24, borderRadius: 16 }}>
           <h2 style={{ margin: 0 }}>Campaign not available</h2>
           <p style={{ color: '#9fb5d8', marginTop: 12 }}>No campaign record exists for this identifier yet.</p>
@@ -58,7 +47,7 @@ export default async function CampaignDetailPage({ params }: { params: { campaig
   const thresholdY = chartTop + ((100 - 80) / 100) * chartInnerHeight;
 
   return (
-    <AppShell title="Campaign detail" subtitle="Cross-tenant evidence" navItems={navItems}>
+    <AppShell title="Campaign detail" subtitle="Cross-tenant evidence" navItems={[...CENTRAL_NAV]}>
       <div style={{ display: 'grid', gap: 18 }}>
         <Link href="/campaigns" style={{ color: '#8ec5ff', fontWeight: 700 }}>Back to campaigns</Link>
 
