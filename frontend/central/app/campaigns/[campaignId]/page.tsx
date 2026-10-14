@@ -5,6 +5,32 @@ import { CENTRAL_NAV } from '../../../lib/nav';
 
 type CampaignMember = { tenant_id?: string | number; similarity?: number; correlation_distance?: number; source_ip?: string; sender_domain?: string; observed_at?: string; match_reasons?: string[] };
 
+function formatDetailDate(value: unknown) {
+  if (!value || String(value) === 'Unknown') return 'Not yet identified';
+  const raw = String(value);
+  if (raw.includes('T')) return raw.replace('T', ' ').slice(0, 16);
+  return raw;
+}
+
+function getPlainEnglishSummary(campaign: Record<string, unknown>, members: CampaignMember[]) {
+  if (campaign.summary && String(campaign.summary).trim()) {
+    return String(campaign.summary);
+  }
+
+  const tenantCount = Number(campaign.tenant_count || new Set(members.map((member) => String(member.tenant_id || 'Unknown'))).size || 0);
+  const messageCount = Number(campaign.email_count || members.length || 0);
+
+  return `This campaign connects ${tenantCount} organizations and ${messageCount} related messages. The emails share similar characteristics, which suggests the same phishing activity was reused across multiple targets.`;
+}
+
+function getReasonText(reasons: string[]) {
+  if (!reasons.length) return 'Shared sender behavior, similar infrastructure, and matching email patterns.';
+  return reasons
+    .map((reason) => reason.replace(/_/g, ' '))
+    .slice(0, 3)
+    .join(', ');
+}
+
 export default async function CampaignDetailPage({ params }: { params: { campaignId: string } }) {
   const campaign = await fetchCentralCampaignDetail(params.campaignId);
 
@@ -28,6 +54,7 @@ export default async function CampaignDetailPage({ params }: { params: { campaig
     : 0;
   const organizations = [...new Set(members.map((member) => String(member.tenant_id || 'Unknown')))].join(', ');
   const reasons = [...new Set(members.flatMap((member) => member.match_reasons || []))];
+  const summaryNarrative = getPlainEnglishSummary(campaign, members);
   const chartWidth = 760;
   const chartHeight = 230;
   const chartLeft = 48;
@@ -54,30 +81,30 @@ export default async function CampaignDetailPage({ params }: { params: { campaig
         <section style={{ background: '#111827', border: '1px solid #243b5b', padding: 24, borderRadius: 16 }}>
           <div style={{ display: 'flex', justifyContent: 'space-between', gap: 16, flexWrap: 'wrap' }}>
             <div>
-              <div style={{ color: '#8ec5ff', fontSize: 12, letterSpacing: 1.2, textTransform: 'uppercase' }}>Campaign ID</div>
+              <div style={{ color: '#8ec5ff', fontSize: 12, letterSpacing: 1.2, textTransform: 'uppercase' }}>Campaign</div>
               <h2 style={{ margin: '8px 0 0', fontSize: 28 }}>{String(campaign.campaign_id || 'Unknown campaign')}</h2>
             </div>
             <div style={{ background: '#172554', border: '1px solid #36558a', borderRadius: 999, padding: '10px 16px', color: '#dbeafe', fontWeight: 700 }}>
-              {String(campaign.status || 'ACTIVE')}
+              {String(campaign.status || 'Active').toUpperCase()}
             </div>
           </div>
 
           <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(160px, 1fr))', gap: 12, marginTop: 20 }}>
             <div style={{ background: '#0b1221', borderRadius: 12, border: '1px solid #243b5b', padding: 16 }}>
-              <div style={{ color: '#9fb5d8', fontSize: 12, textTransform: 'uppercase' }}>Organizations</div>
+              <div style={{ color: '#9fb5d8', fontSize: 12, textTransform: 'uppercase' }}>Affected orgs</div>
               <div style={{ fontSize: 24, fontWeight: 800, marginTop: 8 }}>{tenantCount}</div>
             </div>
             <div style={{ background: '#0b1221', borderRadius: 12, border: '1px solid #243b5b', padding: 16 }}>
-              <div style={{ color: '#9fb5d8', fontSize: 12, textTransform: 'uppercase' }}>Emails</div>
+              <div style={{ color: '#9fb5d8', fontSize: 12, textTransform: 'uppercase' }}>Related emails</div>
               <div style={{ fontSize: 24, fontWeight: 800, marginTop: 8 }}>{emailCount}</div>
             </div>
             <div style={{ background: '#0b1221', borderRadius: 12, border: '1px solid #243b5b', padding: 16 }}>
-              <div style={{ color: '#9fb5d8', fontSize: 12, textTransform: 'uppercase' }}>Avg. similarity</div>
+              <div style={{ color: '#9fb5d8', fontSize: 12, textTransform: 'uppercase' }}>Pattern match</div>
               <div style={{ fontSize: 24, fontWeight: 800, marginTop: 8 }}>{avgSimilarity}%</div>
             </div>
             <div style={{ background: '#0b1221', borderRadius: 12, border: '1px solid #243b5b', padding: 16 }}>
-              <div style={{ color: '#9fb5d8', fontSize: 12, textTransform: 'uppercase' }}>First seen</div>
-              <div style={{ fontSize: 16, fontWeight: 700, marginTop: 8 }}>{String(campaign.first_seen || 'Unknown')}</div>
+              <div style={{ color: '#9fb5d8', fontSize: 12, textTransform: 'uppercase' }}>First detected</div>
+              <div style={{ fontSize: 16, fontWeight: 700, marginTop: 8 }}>{formatDetailDate(campaign.first_seen || 'Unknown')}</div>
             </div>
           </div>
         </section>
@@ -97,13 +124,13 @@ export default async function CampaignDetailPage({ params }: { params: { campaig
         </section>
 
         <section style={{ background: '#111827', border: '1px solid #243b5b', padding: 24, borderRadius: 16 }}>
-          <h3 style={{ margin: '0 0 16px', color: '#8ec5ff', fontSize: 16, textTransform: 'uppercase', letterSpacing: 1 }}>Investigation report</h3>
+          <h3 style={{ margin: '0 0 16px', color: '#8ec5ff', fontSize: 16, textTransform: 'uppercase', letterSpacing: 1 }}>What this campaign means</h3>
           <div style={{ display: 'grid', gap: 10, color: '#dbeafe', lineHeight: 1.6 }}>
-            <div><strong>What happened:</strong> Related messages were detected across {tenantCount} organizations.</div>
-            <div><strong>Why they are linked:</strong> {reasons.length ? reasons.join(', ') : 'Fingerprint similarity and delivery timing.'}</div>
-            <div><strong>Organizations:</strong> {organizations || 'Unavailable'}</div>
-            <div><strong>Time window:</strong> {String(campaign.first_seen || 'Unknown')} to {String(campaign.last_seen || 'Unknown')}</div>
-            <div><strong>Assessment:</strong> {String(campaign.summary || 'Review the evidence below before taking action.')}</div>
+            <div><strong>What happened:</strong> Similar malicious messages were seen across {tenantCount} organizations, indicating a likely shared attack pattern.</div>
+            <div><strong>Why they are linked:</strong> {getReasonText(reasons)}</div>
+            <div><strong>Affected organizations:</strong> {organizations || 'Unavailable'}</div>
+            <div><strong>Time window:</strong> {formatDetailDate(campaign.first_seen || 'Unknown')} to {formatDetailDate(campaign.last_seen || 'Unknown')}</div>
+            <div><strong>Assessment:</strong> {summaryNarrative}</div>
           </div>
         </section>
 

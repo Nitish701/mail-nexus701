@@ -22,6 +22,7 @@ from app.engine.layer2_heuristics import scan_heuristics
 from app.engine.layer3_ml import BodyTextModel
 from app.engine.layer4_yara import StaticScanResult, scan_attachments
 from app.engine.parser import parse_mime
+from app.engine.risk_scoring import calculate_risk_score
 from app.fingerprint import build_email_fingerprint
 from app.services.llm_summarizer import advisory_exports, generate_threat_advisory
 from app.schemas import Attachment, AuthenticationCheck, InboundEmailResponse, LayerCheck, ThreatAdvisory
@@ -209,21 +210,25 @@ async def inbound_email(request: Request, db: Session = Depends(get_db)) -> Inbo
 	recipients = _ingestion_recipients(request, parsed.to_addresses)
 	organization = _organization_for_recipients(db, recipients)
 	tenant_id = _tenant_id(organization, recipients, request)
-	geo = await enrich_ip(parsed.source_ip)
 	private_relay = private_relay_note(parsed.private_relay_ips)
 
 	authentication = validate_authentication(parsed)
 	heuristic_findings, heuristic_score = scan_heuristics(parsed)
-	authentication_score = sum(int(result["score"]) for result in authentication.values())
-	ml_result, static_result = await asyncio.gather(
+	geo, ml_result, static_result = await asyncio.gather(
+		enrich_ip(parsed.source_ip),
 		asyncio.to_thread(body_text_model.score, parsed.subject_and_body),
 		_scan_static_with_budget(parsed.attachments),
 	)
-	base_score = min(authentication_score + heuristic_score + ml_result.score + static_result.score, 70)
-	if geo and geo.is_vpn_proxy:
+	suspicious_infrastructure = bool(geo and geo.is_vpn_proxy)
+	if suspicious_infrastructure:
 		heuristic_findings.append("VPN/proxy/tor sending infrastructure detected")
-		heuristic_score = min(heuristic_score + 10, 40)
-		base_score = min(base_score + 10, 70)
+	base_score = calculate_risk_score(
+		authentication,
+		heuristic_score,
+		ml_result.score,
+		static_result.score,
+		suspicious_infrastructure,
+	)
 	fingerprint = build_email_fingerprint(parsed)
 	all_findings = heuristic_findings + static_result.findings
 	advisory = await generate_threat_advisory(base_score, all_findings, fingerprint.redacted_body)

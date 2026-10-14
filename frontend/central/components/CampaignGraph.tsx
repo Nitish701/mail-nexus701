@@ -14,6 +14,7 @@ type GraphNode = {
   y: number;
   similarity?: number;
   meta?: string;
+  details?: string;
 };
 
 type GraphEdge = {
@@ -40,11 +41,12 @@ function buildGraph(campaigns: Campaign[], selectedId?: string) {
   const nodes: GraphNode[] = [
     {
       id: `campaign:${String(focus.campaign_id)}`,
-      label: String(focus.campaign_id || 'Campaign'),
+      label: 'Campaign group',
       kind: 'campaign',
       x: cx,
       y: cy,
-      meta: `${Number(focus.email_count || members.length)} fingerprints`
+      meta: `${Number(focus.email_count || members.length)} related emails`,
+      details: `Campaign ${String(focus.campaign_id || 'unknown')}`
     }
   ];
 
@@ -62,12 +64,17 @@ function buildGraph(campaigns: Campaign[], selectedId?: string) {
 
     nodes.push({
       id: emailId,
-      label: String(m.sender_domain || m.subject || `FP-${i + 1}`).slice(0, 22),
+      label: String(m.sender_domain || m.subject || `Related email ${i + 1}`).slice(0, 22),
       kind: 'email',
       x: ex,
       y: ey,
       similarity: sim,
-      meta: String(m.source_ip || '')
+      meta: String(m.source_ip || ''),
+      details: [
+        `Related email: ${String(m.sender_domain || m.subject || `Email ${i + 1}`)}`,
+        `Organization: ${orgKey}`,
+        sim > 0 ? `Pattern similarity: ${Math.round(sim * 100)}%` : ''
+      ].filter(Boolean).join(' · ')
     });
 
     edges.push({
@@ -87,7 +94,8 @@ function buildGraph(campaigns: Campaign[], selectedId?: string) {
         kind: 'org',
         x: ox,
         y: oy,
-        meta: 'Organization'
+        meta: 'Affected organization',
+        details: `Affected organization: ${orgKey}`
       });
       edges.push({
         from: emailId,
@@ -151,24 +159,33 @@ export function CampaignGraph({
       <div className="cg-canvas-wrap">
         <div className="cg-canvas-header">
           <div>
-            <div className="soc-kicker">Correlation topology</div>
+            <div className="soc-kicker">Campaign connections</div>
             <h3 className="cg-title">
               {focus ? String(focus.campaign_id) : 'Select a campaign'}
             </h3>
+            <p className="cg-intro">See which email patterns are grouped together and which organizations received them.</p>
           </div>
           <div className="cg-legend">
-            <span className="cg-leg cg-leg-campaign">Campaign</span>
-            <span className="cg-leg cg-leg-email">Fingerprint</span>
-            <span className="cg-leg cg-leg-org">Organization</span>
+            <span className="cg-leg cg-leg-campaign">Campaign group</span>
+            <span className="cg-leg cg-leg-email">Related email</span>
+            <span className="cg-leg cg-leg-org">Affected organization</span>
           </div>
+        </div>
+
+        <div className="cg-explainer">
+          <span><b className="cg-node-key">C</b> campaign, <b className="cg-node-key">E</b> email, <b className="cg-node-key">O</b> organization nodes.</span>
+          <span><i className="cg-line-key cg-line-email" />Center-to-email line: brighter or thicker means a stronger pattern match.</span>
+          <span><i className="cg-line-key cg-line-org" />Email-to-organization line: shows where that email was observed.</span>
         </div>
 
         <svg
           className="cg-svg"
           viewBox="0 0 720 420"
           role="img"
-          aria-label="Campaign correlation graph"
+          aria-label="Campaign connections graph. The center is the campaign, surrounding nodes are related emails and affected organizations."
         >
+          <title>How this campaign connects emails and organizations</title>
+          <desc>Brighter, thicker blue lines indicate a stronger email pattern match to the campaign. Green lines connect an email to the organization where it was observed.</desc>
           <defs>
             <radialGradient id="cg-bg" cx="50%" cy="50%" r="55%">
               <stop offset="0%" stopColor="rgba(56,130,210,0.18)" />
@@ -220,12 +237,12 @@ export function CampaignGraph({
                 y1={a.y}
                 x2={b.x}
                 y2={b.y}
-                stroke={
-                  active
-                    ? `rgba(100,180,255,${0.25 + e.weight * 0.45})`
-                    : 'rgba(60,90,120,0.15)'
-                }
-                strokeWidth={1.2 + e.weight * 2.2}
+                stroke={active
+                  ? a.kind === 'email' && b.kind === 'org'
+                    ? 'rgba(79,212,168,0.72)'
+                    : `rgba(100,180,255,${0.25 + e.weight * 0.45})`
+                  : 'rgba(60,90,120,0.15)'}
+                strokeWidth={a.kind === 'email' && b.kind === 'org' ? 1.5 : 1.2 + e.weight * 2.2}
                 strokeLinecap="round"
               />
             );
@@ -246,6 +263,7 @@ export function CampaignGraph({
                 onMouseLeave={() => setHoverId(null)}
                 style={{ cursor: 'default' }}
               >
+                <title>{n.details || n.label}</title>
                 {n.kind === 'campaign' && (
                   <circle
                     cx={n.x}
@@ -282,18 +300,18 @@ export function CampaignGraph({
                   textAnchor="middle"
                   dominantBaseline="middle"
                   fill="#eef6ff"
-                  fontSize={n.kind === 'campaign' ? 9 : 8}
-                  fontWeight="700"
+                  fontSize="10"
+                  fontWeight="800"
                   fontFamily="ui-sans-serif, system-ui, sans-serif"
                 >
-                  {n.kind === 'campaign' ? 'CAM' : n.kind === 'org' ? 'ORG' : 'FP'}
+                  {n.kind === 'campaign' ? 'C' : n.kind === 'org' ? 'O' : 'E'}
                 </text>
                 <text
                   x={n.x}
-                  y={n.y + r + 14}
+                  y={n.y + r + 13}
                   textAnchor="middle"
                   fill="#b8cce0"
-                  fontSize="10"
+                  fontSize="9"
                   fontWeight="600"
                   fontFamily="ui-sans-serif, system-ui, sans-serif"
                 >
@@ -302,13 +320,13 @@ export function CampaignGraph({
                 {n.similarity != null && n.similarity > 0 && (
                   <text
                     x={n.x}
-                    y={n.y + r + 26}
+                    y={n.y + r + 25}
                     textAnchor="middle"
                     fill="#6ee7b7"
                     fontSize="9"
                     fontWeight="700"
                   >
-                    {Math.round(n.similarity * 100)}%
+                    {Math.round(n.similarity * 100)}% match
                   </text>
                 )}
               </g>
@@ -318,7 +336,8 @@ export function CampaignGraph({
       </div>
 
       <aside className="cg-side">
-        <div className="soc-kicker">Campaign selector</div>
+        <div className="soc-kicker">Choose a campaign</div>
+        <p className="cg-side-intro">Select a campaign to update the connection map and summary.</p>
         <div className="cg-selector">
           {campaigns.map((c) => {
             const id = String(c.campaign_id);
@@ -329,10 +348,11 @@ export function CampaignGraph({
                 type="button"
                 className={`cg-select-btn ${active ? 'is-active' : ''}`}
                 onClick={() => setSelectedId(id)}
+                aria-pressed={active}
               >
-                <span className="cg-select-id">{id}</span>
+                <span className="cg-select-id">Campaign {id}</span>
                 <span className="cg-select-meta">
-                  {Number(c.email_count || 0)} FP · {Number(c.tenant_count || 0)} orgs
+                  {Number(c.email_count || (Array.isArray(c.members) ? c.members.length : 0))} related emails · {Number(c.tenant_count || 0)} organizations
                 </span>
               </button>
             );
@@ -341,24 +361,27 @@ export function CampaignGraph({
 
         {focus && (
           <div className="cg-stats">
-            <div className="soc-kicker">Cluster metrics</div>
+            <div className="soc-kicker">Selected campaign</div>
             <div className="cg-stat-row">
-              <span>Fingerprints</span>
+              <span>Related emails</span>
               <strong>{Number(focus.email_count || members.length)}</strong>
             </div>
             <div className="cg-stat-row">
-              <span>Organizations</span>
+              <span>Affected organizations</span>
               <strong>{Number(focus.tenant_count || 0)}</strong>
             </div>
             <div className="cg-stat-row">
-              <span>Avg similarity</span>
+              <span>Average pattern match</span>
               <strong>{avgSim}%</strong>
             </div>
+            {(members.length > 10 || Number(focus.email_count || 0) > 10) && (
+              <p className="cg-limit-note">The map shows up to 10 related emails so connections stay readable.</p>
+            )}
             <Link
               href={`/campaigns/${encodeURIComponent(String(focus.campaign_id))}`}
               className="cg-detail-link"
             >
-              Open full detail →
+              View campaign evidence →
             </Link>
           </div>
         )}

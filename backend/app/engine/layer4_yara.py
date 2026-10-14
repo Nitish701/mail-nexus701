@@ -3,6 +3,7 @@ from __future__ import annotations
 import asyncio
 import hashlib
 from dataclasses import dataclass
+import json
 from pathlib import Path
 import time
 from typing import Any
@@ -55,6 +56,30 @@ def _scan_attachment(rule_set: Any, attachment: ParsedAttachment) -> list[str]:
 	if rule_set is None:
 		return []
 	return [match.rule for match in rule_set.match(data=attachment.payload)]
+
+
+def _virustotal_findings(results: dict[str, Any]) -> list[str]:
+	findings: list[str] = []
+	for payload in results.values():
+		try:
+			document = json.loads(payload) if isinstance(payload, str) else payload
+		except (json.JSONDecodeError, TypeError):
+			continue
+		if not isinstance(document, dict):
+			continue
+		data = document.get("data")
+		attributes = data.get("attributes") if isinstance(data, dict) else None
+		stats = attributes.get("last_analysis_stats") if isinstance(attributes, dict) else None
+		if not isinstance(stats, dict):
+			continue
+		try:
+			malicious = int(stats.get("malicious", 0) or 0)
+			suspicious = int(stats.get("suspicious", 0) or 0)
+		except (TypeError, ValueError):
+			continue
+		if malicious or suspicious:
+			findings.append(f"VirusTotal detections: {malicious} malicious, {suspicious} suspicious")
+	return findings
 
 
 async def _redis_client() -> Any:
@@ -115,8 +140,7 @@ async def scan_attachments(attachments: list[ParsedAttachment]) -> StaticScanRes
 		virus_total = await asyncio.wait_for(_virustotal_lookup(digests), timeout=0.05)
 	except asyncio.TimeoutError:
 		virus_total = {}
-	if virus_total:
-		findings.append("VirusTotal result available")
+	findings.extend(_virustotal_findings(virus_total))
 	return StaticScanResult(
 		status="suspicious" if findings else "pass",
 		score=min(len(findings) * 20, 30),

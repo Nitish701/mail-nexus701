@@ -9,6 +9,28 @@ import { CENTRAL_NAV } from '../../lib/nav';
 
 const API_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000';
 
+function formatDisplayDate(value: unknown) {
+  if (!value || String(value) === '—') return 'Not yet identified';
+  const raw = String(value);
+  if (raw.includes('T')) return raw.replace('T', ' ').slice(0, 16);
+  return raw;
+}
+
+function getCampaignNarrative(campaign: Record<string, unknown>, members: Array<Record<string, unknown>>) {
+  const tenantCount = Number(campaign.tenant_count || new Set(members.map((member) => String(member.tenant_id || member.organization || 'unknown'))).size || 0);
+  const messageCount = Number(campaign.email_count || members.length || 0);
+
+  if (campaign.summary && String(campaign.summary).trim()) {
+    return String(campaign.summary);
+  }
+
+  if (!members.length) {
+    return 'A correlated phishing activity cluster is forming across multiple organizations.';
+  }
+
+  return `This campaign connects ${tenantCount} organizations and ${messageCount} related messages with a strong similarity pattern, suggesting a coordinated phishing effort.`;
+}
+
 async function loadCampaigns() {
   try {
     const res = await fetch(`${API_URL}/api/developer2/campaigns`, { cache: 'no-store' });
@@ -41,7 +63,7 @@ export default function CampaignsPage() {
   return (
     <AppShell
       title="Campaign center"
-      subtitle="Cross-tenant correlated phishing campaigns · list & graph"
+      subtitle="Clearly grouped phishing activity across tenant organizations"
       navItems={[...CENTRAL_NAV]}
       actions={<ViewToggle value={view} onChange={setView} />}
     >
@@ -51,18 +73,18 @@ export default function CampaignsPage() {
         <CampaignGraph campaigns={campaigns} />
       ) : campaigns.length === 0 ? (
         <div className="art-empty-state">
-          No campaigns detected yet. When tenant fingerprints share TLSH / IOC similarity, they will
-          appear here as correlated campaigns.
+          No campaigns detected yet. When similar phishing emails or malicious infrastructure appear in
+          multiple tenants, they will appear here as a single campaign.
         </div>
       ) : (
         <>
           <section className="page-toolbar">
             <div>
               <div className="soc-kicker">Correlation engine</div>
-              <h2 className="page-section-title">{campaigns.length} active campaigns</h2>
+              <h2 className="page-section-title">{campaigns.length} active campaign clusters</h2>
             </div>
             <button type="button" className="btn-ghost" onClick={() => setView('graph')}>
-              Open graph view →
+              View relationship graph →
             </button>
           </section>
 
@@ -81,6 +103,7 @@ export default function CampaignsPage() {
               const tenants = new Set(
                 members.map((m) => String(m.tenant_id || m.organization || 'unknown'))
               );
+              const narrative = getCampaignNarrative(campaign, members);
 
               return (
                 <Link
@@ -90,35 +113,32 @@ export default function CampaignsPage() {
                 >
                   <div className="campaign-list-head">
                     <div>
-                      <div className="campaign-list-kicker">CAMPAIGN ID</div>
+                      <div className="campaign-list-kicker">Campaign</div>
                       <div className="campaign-list-id">{campaignId}</div>
                     </div>
-                    <span className="campaign-status">ACTIVE</span>
+                    <span className="campaign-status">Active</span>
                   </div>
                   <div className="campaign-list-stats">
                     <div>
                       <strong>{Number(campaign.email_count || members.length)}</strong>
-                      <span>Fingerprints</span>
+                      <span>Related emails</span>
                     </div>
                     <div>
                       <strong>{Number(campaign.tenant_count || tenants.size)}</strong>
-                      <span>Organizations</span>
+                      <span>Affected orgs</span>
                     </div>
                     <div>
                       <strong>{avgSim}%</strong>
-                      <span>Avg similarity</span>
+                      <span>Pattern match</span>
                     </div>
                     <div>
-                      <strong>{String(campaign.first_seen || campaign.created_at || '—')}</strong>
-                      <span>First seen</span>
+                      <strong>{formatDisplayDate(campaign.first_seen || campaign.created_at || '—')}</strong>
+                      <span>First detected</span>
                     </div>
                   </div>
                   <div className="campaign-list-summary">
-                    <span>Summary</span>
-                    {String(
-                      campaign.summary ||
-                        `Correlated cluster of ${members.length} fingerprints across ${tenants.size} organizations.`
-                    )}
+                    <span>What it looks like</span>
+                    {narrative}
                   </div>
                 </Link>
               );

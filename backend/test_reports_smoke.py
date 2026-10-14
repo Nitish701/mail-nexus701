@@ -2,7 +2,10 @@
 
 from fastapi.testclient import TestClient
 
+from app.engine.layer1_auth import validate_authentication
+from app.engine.layer4_yara import _virustotal_findings
 from app.engine.parser import parse_mime
+from app.engine.risk_scoring import calculate_risk_score
 from app.main import app
 
 client = TestClient(app)
@@ -22,6 +25,19 @@ RAW_EMAIL = (
 
 
 def main() -> None:
+	clean_virus_total = {"digest": {"data": {"attributes": {"last_analysis_stats": {"malicious": 0, "suspicious": 0}}}}}
+	threat_virus_total = {"digest": {"data": {"attributes": {"last_analysis_stats": {"malicious": 3, "suspicious": 1}}}}}
+	assert _virustotal_findings(clean_virus_total) == []
+	assert _virustotal_findings(threat_virus_total) == ["VirusTotal detections: 3 malicious, 1 suspicious"]
+	print("VirusTotal risk interpretation ok")
+
+	no_auth_results = parse_mime(b"From: sender@example.com\r\nTo: recipient@example.com\r\nSubject: Hello\r\n\r\nA routine message.")
+	assert all(result["score"] == 0 for result in validate_authentication(no_auth_results).values())
+	assert calculate_risk_score({}, 0, 0, 0) == 0
+	assert calculate_risk_score({"spf": {"score": 15}}, 0, 0, 0) == 9
+	assert calculate_risk_score({"spf": {"score": 35}}, 40, 30, 30, True) == 70
+	print("scoring calibration ok")
+
 	response = client.post(
 		"/api/v1/inbound",
 		content=RAW_EMAIL,

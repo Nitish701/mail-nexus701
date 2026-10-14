@@ -17,16 +17,18 @@ def _header_verdict(email: ParsedEmail, mechanism: str) -> str | None:
 	return None
 
 
-def _check(verdict: str | None, mechanism: str, present: bool) -> dict[str, str | int]:
+def _check(verdict: str | None, mechanism: str) -> dict[str, str | int]:
 	if verdict == "pass":
 		return {"status": "pass", "reason": f"{mechanism.upper()} passed upstream validation", "score": 0}
-	if verdict in {"fail", "softfail", "permerror"}:
+	if verdict == "fail":
 		return {"status": verdict, "reason": f"{mechanism.upper()} reported {verdict}", "score": 15}
-	if verdict:
+	if verdict == "softfail":
+		return {"status": verdict, "reason": f"{mechanism.upper()} reported {verdict}", "score": 10}
+	if verdict == "permerror":
 		return {"status": verdict, "reason": f"{mechanism.upper()} reported {verdict}", "score": 5}
-	if present:
-		return {"status": "unknown", "reason": f"{mechanism.upper()} signature or header found without a verdict", "score": 5}
-	return {"status": "unknown", "reason": f"No {mechanism.upper()} validation result was supplied", "score": 5}
+	if verdict:
+		return {"status": verdict, "reason": f"{mechanism.upper()} reported {verdict}", "score": 0}
+	return {"status": "unknown", "reason": f"No {mechanism.upper()} validation result was supplied", "score": 0}
 
 
 def validate_authentication(email: ParsedEmail) -> dict[str, dict[str, str | int]]:
@@ -36,8 +38,8 @@ def validate_authentication(email: ParsedEmail) -> dict[str, dict[str, str | int
 	return_domain = email.return_path.rsplit("@", 1)[1].lower() if email.return_path and "@" in email.return_path else None
 
 	checks = {
-		"spf": _check(spf_verdict, "spf", bool(from_domain)),
-		"dkim": _check(dkim_verdict, "dkim", "dkim-signature" in email.headers),
+		"spf": _check(spf_verdict, "spf"),
+		"dkim": _check(dkim_verdict, "dkim"),
 	}
 	if from_domain and return_domain and from_domain != return_domain:
 		checks["alignment"] = {

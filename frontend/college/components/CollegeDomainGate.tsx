@@ -2,7 +2,6 @@
 
 import { FormEvent, ReactNode, useEffect, useState } from 'react';
 
-const API_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000';
 const STORAGE_KEY = 'mail-nexus-college-context';
 
 type CollegeContext = { organizationId: number | null; domain: string; collegeName: string };
@@ -30,7 +29,7 @@ export function CollegeDomainGate({ children }: { children: ReactNode }) {
     setBusy(true);
     setError('');
     try {
-      const response = await fetch(`${API_URL}/api/college/verify-domain`, {
+      const response = await fetch('/api/college/verify-domain', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ domain: domain.trim() })
@@ -51,7 +50,7 @@ export function CollegeDomainGate({ children }: { children: ReactNode }) {
     setBusy(true);
     setError('');
     try {
-      const response = await fetch(`${API_URL}/api/organizations`, {
+      const response = await fetch('/api/organizations', {
         method: 'POST', headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ name, domains: domains.split(/[,\s]+/).filter(Boolean) })
       });
