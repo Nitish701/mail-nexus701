@@ -13,6 +13,7 @@ type GraphNode = {
   x: number;
   y: number;
   similarity?: number;
+  sequence?: number;
   meta?: string;
   details?: string;
 };
@@ -20,23 +21,61 @@ type GraphNode = {
 type GraphEdge = {
   from: string;
   to: string;
-  weight: number;
+  weight?: number;
 };
+
+function memberSimilarity(member: Member) {
+  if (member.similarity === null || member.similarity === undefined || member.similarity === '') return null;
+  const similarity = Number(member.similarity);
+  return Number.isFinite(similarity) ? Math.min(1, Math.max(0, similarity)) : null;
+}
+
+function getMatchReasons(member: Member) {
+  return Array.isArray(member.match_reasons)
+    ? member.match_reasons.filter((reason): reason is string => typeof reason === 'string' && reason.trim().length > 0)
+    : [];
+}
+
+function formatObservedAt(value: unknown) {
+  if (!value) return 'Unknown time';
+  const raw = String(value);
+  return raw.includes('T') ? raw.replace('T', ' ').slice(0, 16) : raw;
+}
+
+function getMostCommonReasons(members: Member[]) {
+  const counts = new Map<string, number>();
+  members.forEach((member) => {
+    new Set(getMatchReasons(member)).forEach((reason) => counts.set(reason, (counts.get(reason) || 0) + 1));
+  });
+  return [...counts.entries()].sort((a, b) => b[1] - a[1]);
+}
 
 function buildGraph(campaigns: Campaign[], selectedId?: string) {
   const focus =
     campaigns.find((c) => String(c.campaign_id) === selectedId) || campaigns[0];
-  if (!focus) return { nodes: [] as GraphNode[], edges: [] as GraphEdge[], focus: null as Campaign | null };
+  if (!focus) return {
+    nodes: [] as GraphNode[],
+    edges: [] as GraphEdge[],
+    focus: null as Campaign | null,
+    allMembers: [] as Member[]
+  };
 
-  const members = Array.isArray(focus.members)
-    ? (focus.members as Member[]).slice(0, 10)
-    : [];
+  const allMembers = Array.isArray(focus.members) ? (focus.members as Member[]) : [];
+  const members = allMembers
+    .map((member, index) => ({ member, index, observedAt: Date.parse(String(member.observed_at || '')) }))
+    .sort((a, b) => {
+      if (Number.isNaN(a.observedAt)) return Number.isNaN(b.observedAt) ? a.index - b.index : 1;
+      if (Number.isNaN(b.observedAt)) return -1;
+      return a.observedAt - b.observedAt || a.index - b.index;
+    })
+    .slice(0, 10)
+    .map(({ member }) => member);
 
   const W = 720;
-  const H = 420;
+  const H = 520;
   const cx = W / 2;
   const cy = H / 2;
-  const radius = Math.min(W, H) * 0.34;
+  const radius = Math.min(W, H) * 0.22;
 
   const nodes: GraphNode[] = [
     {
@@ -55,32 +94,35 @@ function buildGraph(campaigns: Campaign[], selectedId?: string) {
 
   members.forEach((m, i) => {
     const angle = (Math.PI * 2 * i) / Math.max(members.length, 1) - Math.PI / 2;
-    const emailId = `email:${String(m.fingerprint_id || m.sha256 || m.id || i)}`;
-    const orgKey = String(m.tenant_id || m.organization || `org-${i}`);
-    const sim = Number(m.similarity || 0);
+    const emailId = `email:${String(m.tenant_id || 'tenant')}:${String(m.observed_at || i)}:${i}`;
+    const orgKey = String(m.tenant_id || `org-${i}`);
+    const sim = memberSimilarity(m);
 
     const ex = cx + Math.cos(angle) * radius;
     const ey = cy + Math.sin(angle) * radius;
 
     nodes.push({
       id: emailId,
-      label: String(m.sender_domain || m.subject || `Related email ${i + 1}`).slice(0, 22),
+      label: String(m.sender_domain || m.source_ip || `Related email ${i + 1}`).slice(0, 22),
       kind: 'email',
       x: ex,
       y: ey,
-      similarity: sim,
+      similarity: sim ?? undefined,
+      sequence: i + 1,
       meta: String(m.source_ip || ''),
       details: [
-        `Related email: ${String(m.sender_domain || m.subject || `Email ${i + 1}`)}`,
+        `Related email: ${String(m.sender_domain || m.source_ip || `Email ${i + 1}`)}`,
         `Organization: ${orgKey}`,
-        sim > 0 ? `Pattern similarity: ${Math.round(sim * 100)}%` : ''
+        sim !== null ? `Pattern similarity: ${Math.round(sim * 100)}%` : '',
+        `Observed: ${formatObservedAt(m.observed_at)}`,
+        getMatchReasons(m).length ? `Match reasons: ${getMatchReasons(m).join(', ')}` : ''
       ].filter(Boolean).join(' · ')
     });
 
     edges.push({
       from: nodes[0].id,
       to: emailId,
-      weight: sim || 0.5
+      weight: sim ?? undefined
     });
 
     if (!orgSeen.has(orgKey)) {
@@ -99,19 +141,17 @@ function buildGraph(campaigns: Campaign[], selectedId?: string) {
       });
       edges.push({
         from: emailId,
-        to: orgId,
-        weight: 0.4
+        to: orgId
       });
     } else {
       edges.push({
         from: emailId,
-        to: orgSeen.get(orgKey)!,
-        weight: 0.35
+        to: orgSeen.get(orgKey)!
       });
     }
   });
 
-  return { nodes, edges, focus };
+  return { nodes, edges, focus, allMembers };
 }
 
 export function CampaignGraph({
@@ -126,7 +166,7 @@ export function CampaignGraph({
   );
   const [hoverId, setHoverId] = useState<string | null>(null);
 
-  const { nodes, edges, focus } = useMemo(
+  const { nodes, edges, focus, allMembers } = useMemo(
     () => buildGraph(campaigns, selectedId),
     [campaigns, selectedId]
   );
@@ -145,14 +185,14 @@ export function CampaignGraph({
     );
   }
 
-  const members = focus && Array.isArray(focus.members)
-    ? (focus.members as Member[])
-    : [];
-  const avgSim = members.length
-    ? Math.round(
-        (members.reduce((t, m) => t + Number(m.similarity || 0), 0) / members.length) * 100
-      )
-    : 0;
+  const members = allMembers;
+  const rankedMembers = [...members].sort((a, b) => (memberSimilarity(b) ?? -1) - (memberSimilarity(a) ?? -1));
+  const commonReasons = getMostCommonReasons(members);
+  const similarityValues = members.map(memberSimilarity).filter((value): value is number => value !== null);
+  const avgSim = similarityValues.length
+    ? Math.round((similarityValues.reduce((total, value) => total + value, 0) / similarityValues.length) * 100)
+    : null;
+  const organizationCount = new Set(members.map((member) => String(member.tenant_id || 'unknown'))).size;
 
   return (
     <div className="cg-layout">
@@ -173,14 +213,17 @@ export function CampaignGraph({
         </div>
 
         <div className="cg-explainer">
-          <span><b className="cg-node-key">C</b> campaign, <b className="cg-node-key">E</b> email, <b className="cg-node-key">O</b> organization nodes.</span>
-          <span><i className="cg-line-key cg-line-email" />Center-to-email line: brighter or thicker means a stronger pattern match.</span>
+          <span><b className="cg-node-key">C</b> Campaign group</span>
+          <span><b className="cg-node-key">E</b> Related email</span>
+          <span><b className="cg-node-key">O</b> Affected organization</span>
+          <span><i className="cg-line-key cg-line-email" />Campaign-to-email: line weight represents returned similarity.</span>
+          <span>Graph email nodes are arranged by observed time, earliest first.</span>
           <span><i className="cg-line-key cg-line-org" />Email-to-organization line: shows where that email was observed.</span>
         </div>
 
         <svg
           className="cg-svg"
-          viewBox="0 0 720 420"
+          viewBox="0 0 720 520"
           role="img"
           aria-label="Campaign connections graph. The center is the campaign, surrounding nodes are related emails and affected organizations."
         >
@@ -200,7 +243,7 @@ export function CampaignGraph({
             </filter>
           </defs>
 
-          <rect width="720" height="420" fill="url(#cg-bg)" />
+          <rect width="720" height="520" fill="url(#cg-bg)" />
 
           {Array.from({ length: 8 }).map((_, i) => (
             <line
@@ -213,13 +256,13 @@ export function CampaignGraph({
               strokeWidth="1"
             />
           ))}
-          {Array.from({ length: 5 }).map((_, i) => (
+          {Array.from({ length: 7 }).map((_, i) => (
             <line
               key={`h-${i}`}
               x1={0}
-              y1={(i + 1) * 70}
+              y1={(i + 1) * 65}
               x2={720}
-              y2={(i + 1) * 70}
+              y2={(i + 1) * 65}
               stroke="rgba(60,90,130,0.12)"
               strokeWidth="1"
             />
@@ -240,10 +283,11 @@ export function CampaignGraph({
                 stroke={active
                   ? a.kind === 'email' && b.kind === 'org'
                     ? 'rgba(79,212,168,0.72)'
-                    : `rgba(100,180,255,${0.25 + e.weight * 0.45})`
+                    : `rgba(100,180,255,${0.25 + (e.weight ?? 0) * 0.45})`
                   : 'rgba(60,90,120,0.15)'}
-                strokeWidth={a.kind === 'email' && b.kind === 'org' ? 1.5 : 1.2 + e.weight * 2.2}
+                strokeWidth={a.kind === 'email' && b.kind === 'org' ? 1.5 : 1 + (e.weight ?? 0) * 2.2}
                 strokeLinecap="round"
+                strokeDasharray={a.kind === 'campaign' && b.kind === 'email' && e.weight == null ? '4 4' : undefined}
               />
             );
           })}
@@ -306,18 +350,30 @@ export function CampaignGraph({
                 >
                   {n.kind === 'campaign' ? 'C' : n.kind === 'org' ? 'O' : 'E'}
                 </text>
+                {n.kind === 'email' && n.sequence != null && (
+                  <text
+                    x={n.x}
+                    y={n.y - r - 5}
+                    textAnchor="middle"
+                    fill="#9aacc2"
+                    fontSize="8"
+                    fontWeight="700"
+                  >
+                    {`#${n.sequence}`}
+                  </text>
+                )}
                 <text
                   x={n.x}
                   y={n.y + r + 13}
                   textAnchor="middle"
                   fill="#b8cce0"
-                  fontSize="9"
+                  fontSize="8"
                   fontWeight="600"
                   fontFamily="ui-sans-serif, system-ui, sans-serif"
                 >
-                  {n.label.length > 16 ? n.label.slice(0, 14) + '…' : n.label}
+                  {n.label.length > 12 ? n.label.slice(0, 11) + '…' : n.label}
                 </text>
-                {n.similarity != null && n.similarity > 0 && (
+                {n.similarity != null && (
                   <text
                     x={n.x}
                     y={n.y + r + 25}
@@ -333,6 +389,17 @@ export function CampaignGraph({
             );
           })}
         </svg>
+        <div className="cg-explainer" style={{ display: 'block' }}>
+          <strong>Linked mainly by:</strong>{' '}
+          {commonReasons.length
+            ? commonReasons.slice(0, 3).map(([reason]) => reason).join(' · ')
+            : 'No match reasons were returned for these members.'}
+          {members.length > 10 && (
+            <p className="cg-limit-note" style={{ color: '#f5c66d' }}>
+              Graph truncated to 10 of {members.length} members for readability. Open campaign evidence to review the full set.
+            </p>
+          )}
+        </div>
       </div>
 
       <aside className="cg-side">
@@ -347,6 +414,7 @@ export function CampaignGraph({
                 key={id}
                 type="button"
                 className={`cg-select-btn ${active ? 'is-active' : ''}`}
+                title={`Campaign ${id}`}
                 onClick={() => setSelectedId(id)}
                 aria-pressed={active}
               >
@@ -368,15 +436,36 @@ export function CampaignGraph({
             </div>
             <div className="cg-stat-row">
               <span>Affected organizations</span>
-              <strong>{Number(focus.tenant_count || 0)}</strong>
+              <strong>{Number(focus.tenant_count || organizationCount)}</strong>
             </div>
             <div className="cg-stat-row">
               <span>Average pattern match</span>
-              <strong>{avgSim}%</strong>
+              <strong>{avgSim === null ? 'N/A' : `${avgSim}%`}</strong>
             </div>
-            {(members.length > 10 || Number(focus.email_count || 0) > 10) && (
-              <p className="cg-limit-note">The map shows up to 10 related emails so connections stay readable.</p>
-            )}
+            <section className="cg-breakdown" aria-label="Correlation breakdown" style={{ marginTop: 18, paddingTop: 16, borderTop: '1px solid #1e3148' }}>
+              <h4 style={{ margin: '0 0 10px', color: '#dbeafe', fontSize: 12, letterSpacing: '.04em', textTransform: 'uppercase' }}>Correlation breakdown</h4>
+              {rankedMembers.length ? (
+                <ol className="cg-member-list" style={{ display: 'grid', gap: 8, maxHeight: 380, margin: 0, padding: '0 4px 0 20px', overflowY: 'auto' }}>
+                  {rankedMembers.map((member, index) => {
+                    const similarity = memberSimilarity(member);
+                    const strongest = index === 0 && similarity !== null;
+                    return (
+                      <li key={`${String(member.tenant_id || 'tenant')}-${String(member.observed_at || index)}-${index}`} style={{ padding: 10, color: '#9aacc2', background: '#101c2c', border: `1px solid ${strongest ? '#4a8cc8' : '#243850'}`, borderRadius: 8, fontSize: 10, lineHeight: 1.5, boxShadow: strongest ? 'inset 2px 0 #6ec0ff' : undefined }}>
+                        <div style={{ display: 'flex', justifyContent: 'space-between', gap: 8, color: '#eaf4ff' }}>
+                          <strong>{strongest ? 'Strongest match · ' : ''}{String(member.tenant_id || 'Unknown organization')}</strong>
+                          <span style={{ flex: '0 0 auto', color: '#7bd3ff', fontWeight: 800 }}>{similarity === null ? 'Similarity unavailable' : `${Math.round(similarity * 100)}%`}</span>
+                        </div>
+                        <div style={{ marginTop: 4, overflowWrap: 'anywhere' }}>Reasons: {getMatchReasons(member).join(' · ') || 'Not returned'}</div>
+                        <div style={{ marginTop: 4, overflowWrap: 'anywhere' }}>Source IP: {String(member.source_ip || 'Unavailable')} · Sender domain: {String(member.sender_domain || 'Unavailable')}</div>
+                        <div style={{ marginTop: 4 }}>Observed: {formatObservedAt(member.observed_at)}</div>
+                      </li>
+                    );
+                  })}
+                </ol>
+              ) : (
+                <p style={{ color: '#9aacc2', fontSize: 11 }}>No member evidence was returned.</p>
+              )}
+            </section>
             <Link
               href={`/campaigns/${encodeURIComponent(String(focus.campaign_id))}`}
               className="cg-detail-link"

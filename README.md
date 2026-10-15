@@ -225,9 +225,14 @@ python test_reports_smoke.py
 
 The included `start-public.ps1` launcher starts the backend, both Next.js portals,
 and the Cloudflare tunnel. It expects `cloudflared` on `PATH` and a configured
-Cloudflare account. Deploy the Worker from `cloudflare_worker` with `wrangler deploy`
-before sending real email. Do not commit tunnel credentials, API keys, or production
-secrets.
+Cloudflare account. Frontend health checks use lightweight `/api/health` routes
+rather than rendering the full Next.js pages, avoiding false failures when a
+development page is slow to render. Checks allow 15 seconds for public tunnel
+requests. If a service process started by the launcher exits, the launcher restarts
+it with a capped backoff; keep the PowerShell window open while the system is in
+use. Closing or interrupting the launcher stops the services it started.
+Deploy the Worker from `cloudflare_worker` with `wrangler deploy` before sending real
+email. Do not commit tunnel credentials, API keys, or production secrets.
 
 ## Configuration
 

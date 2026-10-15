@@ -28,10 +28,13 @@ function Write-ServiceStatus {
 }
 
 function Test-HttpEndpoint {
-    param([string]$Uri)
+    param(
+        [string]$Uri,
+        [int]$TimeoutSeconds = 15
+    )
 
     try {
-        $response = Invoke-WebRequest -Uri $Uri -UseBasicParsing -TimeoutSec 5
+        $response = Invoke-WebRequest -Uri $Uri -UseBasicParsing -TimeoutSec $TimeoutSeconds
         $ok = $response.StatusCode -ge 200 -and $response.StatusCode -lt 400
         return [pscustomobject]@{
             Working = $ok
@@ -84,17 +87,54 @@ function Start-ManagedService {
             -RedirectStandardOutput $stdout `
             -RedirectStandardError $stderr `
             -PassThru
-        $script:ManagedProcesses += [pscustomobject]@{
-            Name = $Name
-            Process = $process
-            Stdout = $stdout
-            Stderr = $stderr
-            ReadyUri = $ReadyUri
+        $managed = $script:ManagedProcesses | Where-Object { $_.Name -eq $Name } | Select-Object -First 1
+        if ($managed) {
+            $managed.Process = $process
+            $managed.Stdout = $stdout
+            $managed.Stderr = $stderr
+            $managed.ReadyUri = $ReadyUri
+            $managed.FilePath = $FilePath
+            $managed.ArgumentList = $ArgumentList
+            $managed.WorkingDirectory = $WorkingDirectory
+        } else {
+            $script:ManagedProcesses += [pscustomobject]@{
+                Name = $Name
+                Process = $process
+                Stdout = $stdout
+                Stderr = $stderr
+                ReadyUri = $ReadyUri
+                FilePath = $FilePath
+                ArgumentList = $ArgumentList
+                WorkingDirectory = $WorkingDirectory
+                RestartDelaySeconds = 10
+                NextRestartAt = Get-Date
+                RestartAttempts = 0
+            }
         }
-        Write-Host "[STARTING] $Name (PID $($process.Id))"
+        $action = if ($Force) { "RESTARTING" } else { "STARTING" }
+        Write-Host "[$action] $Name (PID $($process.Id))"
     } catch {
         Write-ServiceStatus $Name $false "could not start: $($_.Exception.Message)"
     }
+}
+
+function Restart-ManagedService {
+    param([pscustomobject]$Service)
+
+    $Service.Process.Refresh()
+    if (-not $Service.Process.HasExited -or (Get-Date) -lt $Service.NextRestartAt) {
+        return
+    }
+
+    $delay = $Service.RestartDelaySeconds
+    $Service.RestartAttempts++
+    $Service.NextRestartAt = (Get-Date).AddSeconds($delay)
+    $Service.RestartDelaySeconds = [Math]::Min($delay * 2, 120)
+    $details = "process exited with code $($Service.Process.ExitCode); restarting in ${delay}s (attempt $($Service.RestartAttempts)); logs: $($Service.Stdout), $($Service.Stderr)"
+    $stderrTail = if (Test-Path $Service.Stderr) { (Get-Content $Service.Stderr -Tail 8) -join " | " } else { "" }
+    if ($stderrTail) { $details += "; error: $stderrTail" }
+    Write-ServiceStatus $Service.Name $false $details -Always
+    Start-ManagedService $Service.Name $Service.FilePath $Service.ArgumentList $Service.WorkingDirectory $Service.ReadyUri -Force
 }
 
 function Wait-ForEndpoint {
@@ -117,11 +157,7 @@ function Wait-ForEndpoint {
         if ($managed) {
             $managed.Process.Refresh()
             if ($managed.Process.HasExited) {
-                $logHint = "logs: $($managed.Stdout), $($managed.Stderr)"
-                $stderrTail = if (Test-Path $managed.Stderr) { (Get-Content $managed.Stderr -Tail 8) -join " | " } else { "" }
-                if ($stderrTail) { $logHint += "; error: $stderrTail" }
-                Write-ServiceStatus $Name $false "process exited with code $($managed.Process.ExitCode); $logHint"
-                return $false
+                Restart-ManagedService $managed
             }
         }
         Start-Sleep -Seconds 2
@@ -160,8 +196,8 @@ $env:MAIL_NEXUS_INTERNAL_API_URL = "http://127.0.0.1:8000"
 try {
     Start-ManagedService "Backend" $python @("-m", "uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "8000") $backend "http://127.0.0.1:8000/health"
     if ($npmCommand) {
-        Start-ManagedService "College frontend" $npmCommand.Source @("run", "dev") (Join-Path $frontend "college") "http://127.0.0.1:3000"
-        Start-ManagedService "Central frontend" $npmCommand.Source @("run", "dev") (Join-Path $frontend "central") "http://127.0.0.1:3001"
+        Start-ManagedService "College frontend" $npmCommand.Source @("run", "dev") (Join-Path $frontend "college") "http://127.0.0.1:3000/api/health"
+        Start-ManagedService "Central frontend" $npmCommand.Source @("run", "dev") (Join-Path $frontend "central") "http://127.0.0.1:3001/api/health"
     }
 } finally {
     $env:NEXT_PUBLIC_API_URL = $previousPublicApi
@@ -176,11 +212,11 @@ if ($cloudflaredCommand -and -not (Get-Process cloudflared -ErrorAction Silently
 
 Write-Host "`n--- Mail-Nexus startup checks ---"
 $null = Wait-ForEndpoint "Backend" "http://127.0.0.1:8000/health"
-$null = Wait-ForEndpoint "College frontend" "http://127.0.0.1:3000"
-$null = Wait-ForEndpoint "Central frontend" "http://127.0.0.1:3001"
+$null = Wait-ForEndpoint "College frontend" "http://127.0.0.1:3000/api/health"
+$null = Wait-ForEndpoint "Central frontend" "http://127.0.0.1:3001/api/health"
 $null = Wait-ForEndpoint "Public API" "https://api.edushield1.in/health" 75
-$null = Wait-ForEndpoint "College public site" "https://mail.edushield1.in" 75
-$null = Wait-ForEndpoint "Central public site" "https://soc.edushield1.in" 75
+$null = Wait-ForEndpoint "College public site" "https://mail.edushield1.in/api/health" 75
+$null = Wait-ForEndpoint "Central public site" "https://soc.edushield1.in/api/health" 75
 $initialApiProbe = Test-HttpEndpoint "https://api.edushield1.in/health"
 $initialTunnelProcess = Get-Process cloudflared -ErrorAction SilentlyContinue
 $tunnelWorking = [bool]$initialTunnelProcess -and $initialApiProbe.Working
@@ -198,17 +234,24 @@ try {
         Start-Sleep -Seconds 10
         foreach ($service in @(
             @{ Name = "Backend"; Uri = "http://127.0.0.1:8000/health" },
-            @{ Name = "College frontend"; Uri = "http://127.0.0.1:3000" },
-            @{ Name = "Central frontend"; Uri = "http://127.0.0.1:3001" },
+            @{ Name = "College frontend"; Uri = "http://127.0.0.1:3000/api/health" },
+            @{ Name = "Central frontend"; Uri = "http://127.0.0.1:3001/api/health" },
             @{ Name = "Public API"; Uri = "https://api.edushield1.in/health" },
-            @{ Name = "College public site"; Uri = "https://mail.edushield1.in" },
-            @{ Name = "Central public site"; Uri = "https://soc.edushield1.in" }
+            @{ Name = "College public site"; Uri = "https://mail.edushield1.in/api/health" },
+            @{ Name = "Central public site"; Uri = "https://soc.edushield1.in/api/health" }
         )) {
             $probe = Test-HttpEndpoint $service.Uri
             $details = "$($service.Uri) ($($probe.Details))"
             if (-not $probe.Working) {
                 $managed = $script:ManagedProcesses | Where-Object { $_.Name -eq $service.Name } | Select-Object -First 1
                 if ($managed) { $details += "; logs: $($managed.Stdout), $($managed.Stderr)" }
+            } else {
+                $managed = $script:ManagedProcesses | Where-Object { $_.Name -eq $service.Name } | Select-Object -First 1
+                if ($managed) {
+                    $managed.RestartAttempts = 0
+                    $managed.RestartDelaySeconds = 10
+                    $managed.NextRestartAt = Get-Date
+                }
             }
             Write-ServiceStatus $service.Name $probe.Working $details
         }
@@ -220,11 +263,7 @@ try {
         Write-ServiceStatus "Cloudflare tunnel" $tunnelWorking $tunnelDetails
 
         foreach ($managed in $script:ManagedProcesses) {
-            $managed.Process.Refresh()
-            if ($managed.Process.HasExited) {
-                $details = "process exited with code $($managed.Process.ExitCode); logs: $($managed.Stdout), $($managed.Stderr)"
-                Write-ServiceStatus $managed.Name $false $details
-            }
+            Restart-ManagedService $managed
         }
     }
 } finally {

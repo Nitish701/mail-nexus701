@@ -16,8 +16,20 @@ function formatDisplayDate(value: unknown) {
   return raw;
 }
 
+function getTopMatchReason(members: Array<Record<string, unknown>>) {
+  const counts = new Map<string, number>();
+  members.forEach((member) => {
+    const reasons = Array.isArray(member.match_reasons)
+      ? member.match_reasons.filter((reason): reason is string => typeof reason === 'string' && reason.trim().length > 0)
+      : [];
+    new Set(reasons).forEach((reason) => counts.set(reason, (counts.get(reason) || 0) + 1));
+  });
+  const topReason = [...counts.entries()].sort((a, b) => b[1] - a[1])[0]?.[0];
+  return topReason || 'No match reason returned';
+}
+
 function getCampaignNarrative(campaign: Record<string, unknown>, members: Array<Record<string, unknown>>) {
-  const tenantCount = Number(campaign.tenant_count || new Set(members.map((member) => String(member.tenant_id || member.organization || 'unknown'))).size || 0);
+  const tenantCount = Number(campaign.tenant_count || new Set(members.map((member) => String(member.tenant_id || 'unknown'))).size || 0);
   const messageCount = Number(campaign.email_count || members.length || 0);
 
   if (campaign.summary && String(campaign.summary).trim()) {
@@ -25,10 +37,10 @@ function getCampaignNarrative(campaign: Record<string, unknown>, members: Array<
   }
 
   if (!members.length) {
-    return 'A correlated phishing activity cluster is forming across multiple organizations.';
+    return 'No member evidence was returned for this campaign.';
   }
 
-  return `This campaign connects ${tenantCount} organizations and ${messageCount} related messages with a strong similarity pattern, suggesting a coordinated phishing effort.`;
+  return `This campaign groups ${messageCount} related messages across ${tenantCount} organizations. Review the member evidence to see which returned indicators link them.`;
 }
 
 async function loadCampaigns() {
@@ -94,16 +106,17 @@ export default function CampaignsPage() {
                 ? (campaign.members as Array<Record<string, unknown>>)
                 : [];
               const campaignId = String(campaign.campaign_id || 'unknown');
-              const avgSim = members.length
-                ? Math.round(
-                    (members.reduce((t, m) => t + Number(m.similarity || 0), 0) / members.length) *
-                      100
-                  )
-                : 0;
+              const similarities = members
+                .map((member) => member.similarity)
+                .filter((value): value is number => typeof value === 'number' && Number.isFinite(value));
+              const avgSim = similarities.length
+                ? Math.round((similarities.reduce((total, value) => total + value, 0) / similarities.length) * 100)
+                : null;
               const tenants = new Set(
-                members.map((m) => String(m.tenant_id || m.organization || 'unknown'))
+                members.map((m) => String(m.tenant_id || 'unknown'))
               );
               const narrative = getCampaignNarrative(campaign, members);
+              const topMatchReason = getTopMatchReason(members);
 
               return (
                 <Link
@@ -116,9 +129,9 @@ export default function CampaignsPage() {
                       <div className="campaign-list-kicker">Campaign</div>
                       <div className="campaign-list-id">{campaignId}</div>
                     </div>
-                    <span className="campaign-status">Active</span>
+                    <span className="campaign-status">{String(campaign.status || 'Unknown')}</span>
                   </div>
-                  <div className="campaign-list-stats">
+                  <div className="campaign-list-stats" style={{ gridTemplateColumns: 'repeat(auto-fit, minmax(130px, 1fr))' }}>
                     <div>
                       <strong>{Number(campaign.email_count || members.length)}</strong>
                       <span>Related emails</span>
@@ -128,13 +141,21 @@ export default function CampaignsPage() {
                       <span>Affected orgs</span>
                     </div>
                     <div>
-                      <strong>{avgSim}%</strong>
+                      <strong>{avgSim === null ? 'N/A' : `${avgSim}%`}</strong>
                       <span>Pattern match</span>
                     </div>
                     <div>
                       <strong>{formatDisplayDate(campaign.first_seen || campaign.created_at || '—')}</strong>
                       <span>First detected</span>
                     </div>
+                    <div>
+                      <strong>{formatDisplayDate(campaign.last_seen || '—')}</strong>
+                      <span>Last seen</span>
+                    </div>
+                  </div>
+                  <div className="campaign-list-summary">
+                    <span>Top match reason</span>
+                    {topMatchReason}
                   </div>
                   <div className="campaign-list-summary">
                     <span>What it looks like</span>
