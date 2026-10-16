@@ -57,6 +57,7 @@ export default function CampaignsPage() {
   const [view, setView] = useState<'list' | 'graph'>('list');
   const [campaigns, setCampaigns] = useState<Array<Record<string, unknown>>>([]);
   const [loading, setLoading] = useState(true);
+  const [searchQuery, setSearchQuery] = useState('');
 
   useEffect(() => {
     let cancelled = false;
@@ -71,6 +72,15 @@ export default function CampaignsPage() {
       cancelled = true;
     };
   }, []);
+
+  const filteredCampaigns = campaigns.filter((c) => {
+    if (!searchQuery.trim()) return true;
+    const q = searchQuery.toLowerCase();
+    const id = String(c.campaign_id || '').toLowerCase();
+    const summary = String(c.summary || '').toLowerCase();
+    const status = String(c.status || '').toLowerCase();
+    return id.includes(q) || summary.includes(q) || status.includes(q);
+  });
 
   return (
     <AppShell
@@ -90,18 +100,36 @@ export default function CampaignsPage() {
         </div>
       ) : (
         <>
-          <section className="page-toolbar">
+          <section className="page-toolbar" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: 14 }}>
             <div>
               <div className="soc-kicker">Correlation engine</div>
               <h2 className="page-section-title">{campaigns.length} active campaign clusters</h2>
             </div>
-            <button type="button" className="btn-ghost" onClick={() => setView('graph')}>
-              View relationship graph →
-            </button>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap' }}>
+              <div className="soc-search-wrapper" style={{ maxWidth: 260 }}>
+                <span className="soc-search-icon">
+                  <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2">
+                    <circle cx="11" cy="11" r="8" />
+                    <path d="m21 21-4.3-4.3" />
+                  </svg>
+                </span>
+                <input
+                  type="text"
+                  className="soc-search-input"
+                  placeholder="Search campaign ID or pattern..."
+                  value={searchQuery}
+                  onChange={(e) => setSearchQuery(e.target.value)}
+                  style={{ padding: '7px 12px 7px 32px', fontSize: 12 }}
+                />
+              </div>
+              <button type="button" className="btn-ghost" onClick={() => setView('graph')}>
+                View relationship graph →
+              </button>
+            </div>
           </section>
 
           <div className="campaign-list">
-            {campaigns.map((campaign) => {
+            {filteredCampaigns.map((campaign) => {
               const members = Array.isArray(campaign.members)
                 ? (campaign.members as Array<Record<string, unknown>>)
                 : [];

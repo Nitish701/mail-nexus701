@@ -82,43 +82,50 @@ export default async function CampaignDetailPage({ params }: { params: { campaig
   const summaryNarrative = getPlainEnglishSummary(campaign, members);
 
   return (
-    <AppShell title="Campaign detail" subtitle="Cross-tenant evidence" navItems={[...CENTRAL_NAV]}>
-      <div style={{ display: 'grid', gap: 18 }}>
-        <Link href="/campaigns" style={{ color: '#8ec5ff', fontWeight: 700 }}>Back to campaigns</Link>
+    <AppShell title="Campaign Cluster Forensic Evidence" subtitle="Cross-tenant cluster correlation and similarity analysis" navItems={[...CENTRAL_NAV]}>
+      <div className="soc-subpage">
+        <Link href="/campaigns" className="report-back-link" style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}>
+          ← Back to campaign center
+        </Link>
 
-        <section style={{ background: '#111827', border: '1px solid #243b5b', padding: 24, borderRadius: 16 }}>
-          <div style={{ display: 'flex', justifyContent: 'space-between', gap: 16, flexWrap: 'wrap' }}>
+        <section className="soc-card">
+          <div className="soc-card-header">
             <div>
-              <div style={{ color: '#8ec5ff', fontSize: 12, letterSpacing: 1.2, textTransform: 'uppercase' }}>Campaign</div>
-              <h2 style={{ margin: '8px 0 0', fontSize: 28 }}>{String(campaign.campaign_id || 'Unknown campaign')}</h2>
+              <div style={{ color: '#8ec5ff', fontSize: 11, letterSpacing: 1.2, textTransform: 'uppercase', fontWeight: 700 }}>Campaign Cluster</div>
+              <h2 style={{ margin: '6px 0 0', fontSize: 24 }}>{String(campaign.campaign_id || 'Unknown campaign')}</h2>
             </div>
-            <div style={{ background: '#172554', border: '1px solid #36558a', borderRadius: 999, padding: '10px 16px', color: '#dbeafe', fontWeight: 700 }}>
+            <span className="soc-badge high" style={{ fontSize: 12, padding: '6px 14px' }}>
               {String(campaign.status || 'Active').toUpperCase()}
-            </div>
+            </span>
           </div>
 
-          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(160px, 1fr))', gap: 12, marginTop: 20 }}>
-            <div style={{ background: '#0b1221', borderRadius: 12, border: '1px solid #243b5b', padding: 16 }}>
-              <div style={{ color: '#9fb5d8', fontSize: 12, textTransform: 'uppercase' }}>Affected orgs</div>
-              <div style={{ fontSize: 24, fontWeight: 800, marginTop: 8 }}>{tenantCount}</div>
-            </div>
-            <div style={{ background: '#0b1221', borderRadius: 12, border: '1px solid #243b5b', padding: 16 }}>
-              <div style={{ color: '#9fb5d8', fontSize: 12, textTransform: 'uppercase' }}>Related emails</div>
-              <div style={{ fontSize: 24, fontWeight: 800, marginTop: 8 }}>{emailCount}</div>
-            </div>
-            <div style={{ background: '#0b1221', borderRadius: 12, border: '1px solid #243b5b', padding: 16 }}>
-              <div style={{ color: '#9fb5d8', fontSize: 12, textTransform: 'uppercase' }}>Pattern match</div>
-              <div style={{ fontSize: 24, fontWeight: 800, marginTop: 8 }}>{similarityValues.length ? `${avgSimilarity}%` : 'N/A'}</div>
-            </div>
-            <div style={{ background: '#0b1221', borderRadius: 12, border: '1px solid #243b5b', padding: 16 }}>
-              <div style={{ color: '#9fb5d8', fontSize: 12, textTransform: 'uppercase' }}>First detected</div>
-              <div style={{ fontSize: 16, fontWeight: 700, marginTop: 8 }}>{formatDetailDate(campaign.first_seen || 'Unknown')}</div>
+          <div className="soc-card-body">
+            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(160px, 1fr))', gap: 14 }}>
+              <div className="soc-card" style={{ padding: 16, background: '#0a101d' }}>
+                <div style={{ color: '#8fa2bd', fontSize: 11, textTransform: 'uppercase', fontWeight: 700 }}>Affected Orgs</div>
+                <div style={{ fontSize: 24, fontWeight: 800, marginTop: 6, color: '#f1f5fb', fontFamily: '"JetBrains Mono", monospace' }}>{tenantCount}</div>
+              </div>
+              <div className="soc-card" style={{ padding: 16, background: '#0a101d' }}>
+                <div style={{ color: '#8fa2bd', fontSize: 11, textTransform: 'uppercase', fontWeight: 700 }}>Related Emails</div>
+                <div style={{ fontSize: 24, fontWeight: 800, marginTop: 6, color: '#f1f5fb', fontFamily: '"JetBrains Mono", monospace' }}>{emailCount}</div>
+              </div>
+              <div className="soc-card" style={{ padding: 16, background: '#0a101d' }}>
+                <div style={{ color: '#8fa2bd', fontSize: 11, textTransform: 'uppercase', fontWeight: 700 }}>Pattern Match</div>
+                <div style={{ fontSize: 24, fontWeight: 800, marginTop: 6, color: '#38bdf8', fontFamily: '"JetBrains Mono", monospace' }}>{similarityValues.length ? `${avgSimilarity}%` : 'N/A'}</div>
+              </div>
+              <div className="soc-card" style={{ padding: 16, background: '#0a101d' }}>
+                <div style={{ color: '#8fa2bd', fontSize: 11, textTransform: 'uppercase', fontWeight: 700 }}>First Detected</div>
+                <div style={{ fontSize: 14, fontWeight: 700, marginTop: 8, color: '#cbd7e6', fontFamily: '"JetBrains Mono", monospace' }}>{formatDetailDate(campaign.first_seen || 'Unknown')}</div>
+              </div>
             </div>
           </div>
         </section>
 
-        <section className="soc-chart-panel">
-          <h3 style={{ margin: '0 0 16px', color: '#8ec5ff', fontSize: 16, textTransform: 'uppercase', letterSpacing: 1 }}>Correlation evidence</h3>
+        <section className="soc-card">
+          <div className="soc-card-header">
+            <h3 style={{ margin: 0, color: '#8ec5ff', fontSize: 14, textTransform: 'uppercase', letterSpacing: 1 }}>Correlation Evidence Summary</h3>
+          </div>
+          <div className="soc-card-body">
           <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(240px, 1fr))', gap: 12, marginBottom: 20 }}>
             <div style={{ minWidth: 0, padding: 14, color: '#aabbd0', background: '#0b1523', border: '1px solid #243b5b', borderRadius: 10, fontSize: 12, lineHeight: 1.6, overflowWrap: 'anywhere' }}>
               <h4 style={{ margin: '0 0 8px', color: '#dbeafe', fontSize: 13 }}>Why linked</h4>
@@ -134,7 +141,8 @@ export default async function CampaignDetailPage({ params }: { params: { campaig
               <p><strong>Sender domains:</strong> {sharedSenderDomains.length ? sharedSenderDomains.map(({ value, count }) => `${value} (${count} ${count === 1 ? 'member' : 'members'})`).join(', ') : 'None returned'}</p>
             </div>
           </div>
-        </section>
+        </div>
+      </section>
 
         <section className="soc-chart-panel">
           <div className="soc-chart-header">
@@ -182,35 +190,45 @@ export default async function CampaignDetailPage({ params }: { params: { campaig
           )}
         </section>
 
-        <section style={{ background: '#111827', border: '1px solid #243b5b', padding: 24, borderRadius: 16 }}>
-          <h3 style={{ margin: '0 0 16px', color: '#8ec5ff', fontSize: 16, textTransform: 'uppercase', letterSpacing: 1 }}>What this campaign means</h3>
-          <div style={{ display: 'grid', gap: 10, color: '#dbeafe', lineHeight: 1.6 }}>
-            <div><strong>What happened:</strong> Similar malicious messages were seen across {tenantCount} organizations, indicating a likely shared attack pattern.</div>
-            <div><strong>Why they are linked:</strong> {reasons.length ? reasons.map((reason) => reason.replace(/_/g, ' ')).join(', ') : 'No match reasons were returned.'}</div>
-            <div><strong>Affected organizations:</strong> {organizations || 'Unavailable'}</div>
-            <div><strong>Time window:</strong> {formatDetailDate(campaign.first_seen || 'Unknown')} to {formatDetailDate(campaign.last_seen || 'Unknown')}</div>
-            <div><strong>Assessment:</strong> {summaryNarrative}</div>
+        <section className="soc-card">
+          <div className="soc-card-header">
+            <h3 style={{ margin: 0, color: '#8ec5ff', fontSize: 14, textTransform: 'uppercase', letterSpacing: 1 }}>What this campaign means</h3>
+          </div>
+          <div className="soc-card-body">
+            <div style={{ display: 'grid', gap: 12, color: '#dbeafe', lineHeight: 1.6, fontSize: 13 }}>
+              <div><strong>What happened:</strong> Similar malicious messages were seen across {tenantCount} organizations, indicating a likely shared attack pattern.</div>
+              <div><strong>Why they are linked:</strong> {reasons.length ? reasons.map((reason) => reason.replace(/_/g, ' ')).join(', ') : 'No match reasons were returned.'}</div>
+              <div><strong>Affected organizations:</strong> {organizations || 'Unavailable'}</div>
+              <div><strong>Time window:</strong> {formatDetailDate(campaign.first_seen || 'Unknown')} to {formatDetailDate(campaign.last_seen || 'Unknown')}</div>
+              <div><strong>Assessment:</strong> {summaryNarrative}</div>
+            </div>
           </div>
         </section>
 
-        <section style={{ background: '#111827', border: '1px solid #243b5b', padding: 24, borderRadius: 16 }}>
-          <h3 style={{ margin: '0 0 18px', color: '#8ec5ff', fontSize: 16, textTransform: 'uppercase', letterSpacing: 1 }}>Evidence matrix</h3>
-          <div style={{ display: 'grid', gap: 12 }}>
+        <section className="soc-card">
+          <div className="soc-card-header">
+            <h3 style={{ margin: 0, color: '#8ec5ff', fontSize: 14, textTransform: 'uppercase', letterSpacing: 1 }}>Member Evidence Matrix</h3>
+          </div>
+          <div className="soc-card-body">
             {members.length === 0 ? (
               <div style={{ color: '#9fb5d8' }}>No member evidence is currently attached to this campaign.</div>
-            ) : rankedMembers.map((member, index) => (
-            <div key={`${member.tenant_id ?? 'tenant'}-${member.observed_at || index}-${index}`} className={`evidence-gauge-card ${index === 0 && getSimilarity(member) !== null ? 'is-strongest' : ''}`}>
-                <div style={{ display: 'flex', justifyContent: 'space-between', flexWrap: 'wrap', gap: 12, alignItems: 'center' }}>
-                  <div style={{ fontWeight: 700 }}>{index === 0 && getSimilarity(member) !== null ? 'Strongest match · ' : ''}{String(member.tenant_id || 'Unknown tenant')}</div>
-                  <div className="similarity-gauge" style={{ background: `conic-gradient(#63c6ff ${Math.round((getSimilarity(member) ?? 0) * 100)}%, #20364f 0)` }}><div><strong>{getSimilarity(member) === null ? 'N/A' : `${Math.round((getSimilarity(member) ?? 0) * 100)}%`}</strong><span>match</span></div></div>
-                </div>
-                <div style={{ marginTop: 8, color: '#9fb5d8', fontSize: 13 }}>
-                  <div>Correlation distance: {member.correlation_distance ?? 'N/A'} · Observed: {formatDetailDate(member.observed_at || 'Unknown')}</div>
-                  <div style={{ marginTop: 5 }}>Evidence: {getMemberReasons(member).join(' · ') || 'Not returned'}</div>
-                  <div style={{ marginTop: 5 }}>Sender domain: {member.sender_domain || 'Unavailable'} · Source infrastructure: {member.source_ip || 'Unavailable'}</div>
-                </div>
+            ) : (
+              <div style={{ display: 'grid', gap: 12 }}>
+                {rankedMembers.map((member, index) => (
+                  <div key={`${member.tenant_id ?? 'tenant'}-${member.observed_at || index}-${index}`} className={`evidence-gauge-card ${index === 0 && getSimilarity(member) !== null ? 'is-strongest' : ''}`}>
+                    <div style={{ display: 'flex', justifyContent: 'space-between', flexWrap: 'wrap', gap: 12, alignItems: 'center' }}>
+                      <div style={{ fontWeight: 700 }}>{index === 0 && getSimilarity(member) !== null ? 'Strongest match · ' : ''}{String(member.tenant_id || 'Unknown tenant')}</div>
+                      <div className="similarity-gauge" style={{ background: `conic-gradient(#63c6ff ${Math.round((getSimilarity(member) ?? 0) * 100)}%, #20364f 0)` }}><div><strong>{getSimilarity(member) === null ? 'N/A' : `${Math.round((getSimilarity(member) ?? 0) * 100)}%`}</strong><span>match</span></div></div>
+                    </div>
+                    <div style={{ marginTop: 8, color: '#9fb5d8', fontSize: 13 }}>
+                      <div>Correlation distance: {member.correlation_distance ?? 'N/A'} · Observed: {formatDetailDate(member.observed_at || 'Unknown')}</div>
+                      <div style={{ marginTop: 5 }}>Evidence: {getMemberReasons(member).join(' · ') || 'Not returned'}</div>
+                      <div style={{ marginTop: 5 }}>Sender domain: {member.sender_domain || 'Unavailable'} · Source infrastructure: {member.source_ip || 'Unavailable'}</div>
+                    </div>
+                  </div>
+                ))}
               </div>
-            ))}
+            )}
           </div>
         </section>
       </div>
