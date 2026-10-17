@@ -4,6 +4,7 @@ import os
 
 BASE_DIR = Path(__file__).resolve().parents[1]
 MODEL_PATH = Path(os.getenv("MAIL_NEXUS_MODEL_PATH", BASE_DIR / "models" / "body_model.joblib"))
+BODY_MODEL_MODE = os.getenv("MAIL_NEXUS_BODY_MODEL_MODE", "auto").lower()
 YARA_RULES_DIR = Path(os.getenv("MAIL_NEXUS_YARA_RULES_DIR", BASE_DIR / "rules"))
 ATTACHMENT_SCAN_DIR = Path(os.getenv("MAIL_NEXUS_ATTACHMENT_SCAN_DIR", "/tmp"))
 REDIS_URL = os.getenv("REDIS_URL", "redis://localhost:6379/0")

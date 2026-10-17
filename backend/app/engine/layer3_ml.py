@@ -1,10 +1,13 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
+import logging
 from pathlib import Path
 from threading import Lock
 from typing import Any
 import re
+
+logger = logging.getLogger(__name__)
 
 
 @dataclass
@@ -20,6 +23,7 @@ class BodyTextModel:
 		self.model_path = model_path
 		self._model: Any = None
 		self._load_error: str | None = None
+		self.model_artifact_name: str | None = None
 		self._lock = Lock()
 
 	def _load(self) -> Any:
@@ -30,10 +34,47 @@ class BodyTextModel:
 				return self._model
 			try:
 				import joblib
+				from .. import config
 
-				self._model = joblib.load(self.model_path)
-			except Exception as error:  # Optional model; ingestion must remain available.
+				mode = config.BODY_MODEL_MODE
+				candidates: list[Path]
+				if mode == "experimental":
+					candidates = [self.model_path.parent / "body_model_exp_v2_real.joblib"]
+				elif mode == "production":
+					candidates = [self.model_path, self.model_path.parent / "body_model.backup.joblib"]
+				elif mode == "auto":
+					candidates = [
+						self.model_path.parent / "body_model_exp_v2_real.joblib",
+						self.model_path,
+						self.model_path.parent / "body_model.backup.joblib",
+					]
+				else:
+					raise ValueError(
+						"MAIL_NEXUS_BODY_MODEL_MODE must be auto, experimental, or production"
+					)
+
+				loaded_model = None
+				actual_path: Path | None = None
+
+				for path in candidates:
+					if path.exists():
+						try:
+							loaded_model = joblib.load(path)
+							actual_path = path
+							break
+						except Exception as error:
+							logger.warning("Failed to load model from %s: %s", path, error)
+
+				if loaded_model is None:
+					raise RuntimeError("No usable body text ML model found in candidates")
+
+				self._model = loaded_model
+				self.model_artifact_name = actual_path.name
+				logger.info("BodyTextModel loaded artifact: %s", self.model_artifact_name)
+
+			except Exception as error:
 				self._load_error = str(error)
+				logger.error("BodyTextModel could not load an artifact: %s", error)
 		return self._model
 
 	def score(self, body_text: str) -> MLResult:
@@ -43,11 +84,14 @@ class BodyTextModel:
 
 		try:
 			if hasattr(model, "predict_proba"):
-				probability = float(model.predict_proba([body_text])[0][-1])
+				classes = list(getattr(model, "classes_", []))
+				if 1 not in classes:
+					raise ValueError(f"Model classes do not contain phishing class 1: {classes}")
+				probability = float(model.predict_proba([body_text])[0][classes.index(1)])
 			else:
 				probability = float(model.predict([body_text])[0])
 			probability = max(0.0, min(probability, 1.0))
-			return MLResult("pass" if probability < 0.5 else "suspicious", round(probability * 30), probability, "Body text scored by XGBoost model")
+			return MLResult("pass" if probability < 0.5 else "suspicious", round(probability * 30), probability, "Body text scored by ML model")
 		except Exception as error:
 			return MLResult("error", 0, None, f"ML model could not score body text: {error}")
 
@@ -65,5 +109,5 @@ class BodyTextModel:
 			"fallback",
 			round(probability * 30),
 			probability,
-			"XGBoost model unavailable; lexical fallback used",
+			"Body text model unavailable; lexical fallback used",
 		)
