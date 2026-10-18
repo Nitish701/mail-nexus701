@@ -34,7 +34,8 @@ def main() -> None:
 	no_auth_results = parse_mime(b"From: sender@example.com\r\nTo: recipient@example.com\r\nSubject: Hello\r\n\r\nA routine message.")
 	assert all(result["score"] == 0 for result in validate_authentication(no_auth_results).values())
 	assert calculate_risk_score({}, 0, 0, 0) == 0
-	assert calculate_risk_score({"spf": {"score": 15}}, 0, 0, 0) == 9
+	assert calculate_risk_score({"spf": {"score": 15}}, 0, 0, 0) == 4
+	assert calculate_risk_score({}, 0, 30, 0) == 13
 	assert calculate_risk_score({"spf": {"score": 35}}, 40, 30, 30, True) == 70
 	print("scoring calibration ok")
 
@@ -49,6 +50,21 @@ def main() -> None:
 	assert report_id, "report_id missing from scan response"
 	assert body["base_score"] > 0
 	print("scan ok, report_id =", report_id, "score =", body["base_score"])
+
+	dashboard = client.get("/api/reports/dashboard")
+	assert dashboard.status_code == 200, dashboard.text
+	dashboard_data = dashboard.json()
+	assert dashboard_data["emails_today"] >= 1
+	assert dashboard_data["needs_review"] >= 0
+	assert dashboard_data["high_risk"] >= 0
+	recent_report = next(
+		(item for item in dashboard_data["recent_suspicious_emails"] if item["report_id"] == report_id),
+		None,
+	)
+	assert recent_report, "new suspicious report missing from dashboard recent emails"
+	assert recent_report["sender"] == "attacker@evil.example"
+	assert recent_report["subject"] == "URGENT verify your account"
+	print("dashboard metrics and recent sender/subject ok")
 
 	# list
 	listed = client.get("/api/reports")
@@ -75,6 +91,10 @@ def main() -> None:
 	missing = client.post("/api/reports/campaign/CMP-does-not-exist")
 	assert missing.status_code == 404, missing.text
 	print("campaign 404 ok")
+
+	deleted = client.delete(f"/api/reports/{report_id}")
+	assert deleted.status_code == 200, deleted.text
+	print("test report cleanup ok")
 
 	print("ALL SMOKE TESTS PASSED")
 

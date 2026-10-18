@@ -30,9 +30,12 @@ class ParsedEmail:
 	source_ip: str | None
 	private_relay_ips: list[str]
 	to_addresses: list[str]
+	cc_addresses: list[str]
+	bcc_addresses: list[str]
 	subject: str | None
 	headers: dict[str, list[str]]
 	urls: list[str]
+	html_links: list[tuple[str, str]]
 	attachments: list[ParsedAttachment]
 	subject_and_body: str
 
@@ -63,6 +66,20 @@ def _extract_urls(text: str) -> list[str]:
 
 def _extract_source_ips(headers: dict[str, list[str]]) -> tuple[str | None, list[str]]:
 	private_ips: list[str] = []
+
+	# 1. Prioritize Received headers (the most reliable source of SMTP hop history)
+	for value in headers.get("received", []):
+		for candidate in re.findall(r"(?<![\w:])(?:\d{1,3}\.){3}\d{1,3}|(?<![\w:])[0-9a-fA-F:]{3,39}(?![\w:])", value):
+			try:
+				address = ipaddress.ip_address(candidate)
+			except ValueError:
+				continue
+			if address.is_global:
+				return str(address), private_ips
+			if address.is_private and str(address) not in private_ips:
+				private_ips.append(str(address))
+
+	# 2. Fallback to proxy headers if no global IP found in Received chain
 	proxy_headers = (
 		"cf-connecting-ip",
 		"true-client-ip",
@@ -87,16 +104,6 @@ def _extract_source_ips(headers: dict[str, list[str]]) -> tuple[str | None, list
 					if address.is_private and str(address) not in private_ips:
 						private_ips.append(str(address))
 
-	for value in headers.get("received", []):
-		for candidate in re.findall(r"(?<![\w:])(?:\d{1,3}\.){3}\d{1,3}|(?<![\w:])[0-9a-fA-F:]{3,39}(?![\w:])", value):
-			try:
-				address = ipaddress.ip_address(candidate)
-			except ValueError:
-				continue
-			if address.is_global:
-				return str(address), private_ips
-			if address.is_private and str(address) not in private_ips:
-				private_ips.append(str(address))
 	return None, private_ips
 
 
@@ -111,8 +118,22 @@ def parse_mime(raw_message: bytes) -> ParsedEmail:
 	return_path = parseaddr(message.get("Return-Path", ""))[1] or None
 	to_addresses = [address for _, address in getaddresses(message.get_all("To", [])) if address]
 
+	# Extract CC and BCC with deduplication preserving order
+	cc_raw = [address for _, address in getaddresses(message.get_all("Cc", [])) if address]
+	cc_addresses: list[str] = []
+	for addr in cc_raw:
+		if addr not in cc_addresses:
+			cc_addresses.append(addr)
+
+	bcc_raw = [address for _, address in getaddresses(message.get_all("Bcc", [])) if address]
+	bcc_addresses: list[str] = []
+	for addr in bcc_raw:
+		if addr not in bcc_addresses:
+			bcc_addresses.append(addr)
+
 	text_parts: list[str] = []
 	urls: list[str] = []
+	html_links: list[tuple[str, str]] = []
 	attachments: list[ParsedAttachment] = []
 	for part in message.walk():
 		if part.is_multipart():
@@ -138,6 +159,13 @@ def parse_mime(raw_message: bytes) -> ParsedEmail:
 			text_parts.append(text)
 			urls.extend(url for url in _extract_urls(text) if url not in urls)
 
+			if part.get_content_type() == "text/html":
+				for match in re.finditer(r'<a\s+[^>]*href=["\']([^"\']+)["\'][^>]*>(.*?)</a>', text, re.IGNORECASE | re.DOTALL):
+					href = match.group(1)
+					text_content = match.group(2)
+					if href.startswith(("http://", "https://")):
+						html_links.append((text_content, href))
+
 	subject = str(message.get("Subject", "")) or None
 	subject_and_body = "\n".join(value for value in [subject or "", *text_parts] if value)
 	source_ip, private_relay_ips = _extract_source_ips(headers)
@@ -149,9 +177,12 @@ def parse_mime(raw_message: bytes) -> ParsedEmail:
 		source_ip=source_ip,
 		private_relay_ips=private_relay_ips,
 		to_addresses=to_addresses,
+		cc_addresses=cc_addresses,
+		bcc_addresses=bcc_addresses,
 		subject=subject,
 		headers=headers,
 		urls=urls,
+		html_links=html_links,
 		attachments=attachments,
 		subject_and_body=subject_and_body,
 	)

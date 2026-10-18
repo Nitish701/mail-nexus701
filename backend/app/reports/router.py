@@ -51,10 +51,18 @@ def list_reports(
 				continue
 			detail = report_store.get_report(db, report["report_id"]) or {}
 			risk = detail.get("risk") or {}
-			if int(risk.get("base_score") or 0) >= 20:
+			if int(risk.get("base_score") or 0) >= 20 or risk.get("disposition") == "review":
 				filtered.append(report)
 		reports = filtered
 	return {"reports": reports}
+
+
+@router.get("/dashboard")
+def dashboard_summary(
+	organization_id: int | None = Query(default=None, ge=1),
+	db: Session = Depends(get_db),
+):
+	return report_store.get_dashboard_summary(db, organization_id=organization_id)
 
 
 @router.get("/{report_id}")

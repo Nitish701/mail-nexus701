@@ -444,3 +444,48 @@ class Dev2CampaignMember(Base):
             "tenant_id",
         ),
     )
+
+
+class Dev2CampaignCorrelation(Base):
+    """Records the exact fingerprint pair and evidence that created a campaign link."""
+
+    __tablename__ = "dev2_campaign_correlations"
+
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    campaign_id = Column(
+        Integer,
+        ForeignKey("dev2_campaigns.id", ondelete="CASCADE"),
+        nullable=False,
+        index=True,
+    )
+    source_fingerprint_id = Column(
+        Integer,
+        ForeignKey("dev2_fingerprints.id", ondelete="CASCADE"),
+        nullable=False,
+        index=True,
+    )
+    matched_fingerprint_id = Column(
+        Integer,
+        ForeignKey("dev2_fingerprints.id", ondelete="CASCADE"),
+        nullable=False,
+        index=True,
+    )
+    similarity = Column(Float, nullable=False)
+    correlation_distance = Column(Integer, nullable=True)
+    match_method = Column(String(50), nullable=False)
+    created_at = Column(DateTime(timezone=True), nullable=False, default=utc_now)
+
+    __table_args__ = (
+        UniqueConstraint(
+            "campaign_id",
+            "source_fingerprint_id",
+            "matched_fingerprint_id",
+            name="uq_dev2_campaign_correlation_pair",
+        ),
+        Index(
+            "ix_dev2_correlation_campaign_pair",
+            "campaign_id",
+            "source_fingerprint_id",
+            "matched_fingerprint_id",
+        ),
+    )

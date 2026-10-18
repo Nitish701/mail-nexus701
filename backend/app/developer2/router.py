@@ -1,4 +1,4 @@
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from typing import Any, Dict
 from email.utils import parseaddr
 
@@ -14,11 +14,12 @@ from sqlalchemy.exc import SQLAlchemyError
 from sqlalchemy.orm import Session
 
 from .broadcaster import broadcaster
-from .correlation import correlate_fingerprint
+from .correlation import CORRELATION_WINDOW_MINUTES, TLSH_MAX_DISTANCE, correlate_fingerprint
 from .database import get_db
 from .geo import enrich_ip
 from .models import (
     Dev2Campaign,
+    Dev2CampaignCorrelation,
     Dev2CampaignMember,
     Dev2Email,
     Dev2Fingerprint,
@@ -54,39 +55,126 @@ def _sender_domain(sender: str | None) -> str | None:
     return address.rsplit("@", 1)[-1].lower() if "@" in address else None
 
 
-def _campaign_members_payload(members: list[Dev2CampaignMember]) -> list[dict[str, Any]]:
+def _within_correlation_window(first: datetime, second: datetime) -> bool:
+    if first.tzinfo is None:
+        first = first.replace(tzinfo=timezone.utc)
+    if second.tzinfo is None:
+        second = second.replace(tzinfo=timezone.utc)
+    return abs(first - second) <= timedelta(minutes=CORRELATION_WINDOW_MINUTES)
+
+
+def _campaign_members_payload(
+    members: list[Dev2CampaignMember],
+    organization_id: int | None = None,
+) -> list[dict[str, Any]]:
     fingerprints = [member.fingerprint for member in members]
-    source_ip_counts: dict[str, int] = {}
-    domain_counts: dict[str, int] = {}
+    fingerprints_by_id = {fingerprint.id: fingerprint for fingerprint in fingerprints}
+    fingerprints_by_ip: dict[str, list[Dev2Fingerprint]] = {}
+    fingerprints_by_domain: dict[str, list[Dev2Fingerprint]] = {}
     for fingerprint in fingerprints:
         if fingerprint.source_ip:
-            source_ip_counts[fingerprint.source_ip] = source_ip_counts.get(fingerprint.source_ip, 0) + 1
+            fingerprints_by_ip.setdefault(fingerprint.source_ip, []).append(fingerprint)
         domain = _sender_domain(fingerprint.email.sender if fingerprint.email else None)
         if domain:
-            domain_counts[domain] = domain_counts.get(domain, 0) + 1
+            fingerprints_by_domain.setdefault(domain, []).append(fingerprint)
 
     payload = []
     for member in members:
         fingerprint = member.fingerprint
+        if organization_id is not None and fingerprint.organization_id != organization_id:
+            continue
         domain = _sender_domain(fingerprint.email.sender if fingerprint.email else None)
-        reasons: list[str] = []
-        if fingerprint.source_ip and source_ip_counts.get(fingerprint.source_ip, 0) > 1:
-            reasons.append("shared source infrastructure")
-        if domain and domain_counts.get(domain, 0) > 1:
-            reasons.append("shared sender domain")
-        if member.correlation_distance is not None:
-            reasons.append(f"fingerprint distance {member.correlation_distance}")
+        related_members: dict[int, set[str]] = {}
+        for peer in fingerprints_by_ip.get(fingerprint.source_ip, []) if fingerprint.source_ip else []:
+            if (
+                peer.id != fingerprint.id
+                and peer.tenant_id != fingerprint.tenant_id
+                and _within_correlation_window(fingerprint.created_at, peer.created_at)
+            ):
+                related_members.setdefault(peer.id, set()).add("Shared source IP")
+        for peer in fingerprints_by_domain.get(domain, []) if domain else []:
+            if (
+                peer.id != fingerprint.id
+                and peer.tenant_id != fingerprint.tenant_id
+                and _within_correlation_window(fingerprint.created_at, peer.created_at)
+            ):
+                related_members.setdefault(peer.id, set()).add("Shared sender domain")
+        visible_related: list[dict[str, Any]] = []
+        hidden_related_count = 0
+        for peer_id, signals in related_members.items():
+            peer = fingerprints_by_id[peer_id]
+            if organization_id is not None and peer.organization_id != organization_id:
+                hidden_related_count += 1
+                continue
+            visible_related.append({
+                "fingerprint_id": peer_id,
+                "signals": sorted(signals),
+                "subject": peer.email.subject if peer.email else None,
+                "observed_at": peer.created_at,
+            })
+        reasons = sorted({
+            signal
+            for relation in visible_related
+            for signal in relation["signals"]
+        })
+        if hidden_related_count:
+            reasons.append("Direct match exists with another organization's email")
+        email = fingerprint.email
         payload.append({
             "fingerprint_id": member.fingerprint_id,
             "tenant_id": member.tenant_id,
             "similarity": member.similarity,
             "correlation_distance": member.correlation_distance,
+            "fingerprint_type": fingerprint.fingerprint_type,
             "source_ip": fingerprint.source_ip,
             "sender_domain": domain,
+            "subject": email.subject if email else None,
+            "message_id": email.message_id if email else None,
+            "risk_score": email.risk_score if email else None,
             "observed_at": fingerprint.created_at,
-            "match_reasons": reasons or ["fingerprint similarity"],
+            "geo_country": fingerprint.geo_country,
+            "match_reasons": reasons,
+            "related_members": visible_related,
+            "hidden_related_count": hidden_related_count,
         })
     return payload
+
+
+def _campaign_correlations_payload(
+    db: Session,
+    campaign_id: int,
+    members: list[Dev2CampaignMember],
+    organization_id: int | None = None,
+) -> tuple[list[dict[str, Any]], int]:
+    visible_fingerprint_ids = {
+        member.fingerprint_id
+        for member in members
+        if organization_id is None or member.fingerprint.organization_id == organization_id
+    }
+    correlations = list(db.execute(
+        select(Dev2CampaignCorrelation)
+        .where(Dev2CampaignCorrelation.campaign_id == campaign_id)
+        .order_by(Dev2CampaignCorrelation.created_at.asc())
+    ).scalars().all())
+
+    visible_correlations = []
+    hidden_count = 0
+    for correlation in correlations:
+        if (
+            correlation.source_fingerprint_id not in visible_fingerprint_ids
+            or correlation.matched_fingerprint_id not in visible_fingerprint_ids
+        ):
+            hidden_count += 1
+            continue
+        visible_correlations.append({
+            "source_fingerprint_id": correlation.source_fingerprint_id,
+            "matched_fingerprint_id": correlation.matched_fingerprint_id,
+            "match_method": correlation.match_method,
+            "similarity": correlation.similarity,
+            "correlation_distance": correlation.correlation_distance,
+            "matched_at": correlation.created_at,
+        })
+    return visible_correlations, hidden_count
 
 
 # ============================================================
@@ -404,6 +492,17 @@ def get_campaigns(
             .all()
         )
 
+        organization_members = [
+            member for member in members
+            if organization_id is None or member.fingerprint.organization_id == organization_id
+        ]
+        scoped_members = _campaign_members_payload(members, organization_id)
+        scoped_correlations, hidden_correlation_count = _campaign_correlations_payload(
+            db,
+            campaign.id,
+            members,
+            organization_id,
+        )
         response.append(
             {
                 "campaign_id": (
@@ -424,10 +523,14 @@ def get_campaigns(
 
                 "tenant_count": (
                     campaign.tenant_count
+                    if organization_id is None
+                    else len({member.tenant_id for member in organization_members})
                 ),
 
                 "email_count": (
                     campaign.email_count
+                    if organization_id is None
+                    else len(organization_members)
                 ),
 
                 "status": (
@@ -436,9 +539,26 @@ def get_campaigns(
 
                 "summary": (
                     campaign.summary
+                    if organization_id is None
+                    else "This organization has "
+                    f"{len(organization_members)} correlated email(s). "
+                    "Details for other organizations are hidden."
                 ),
 
-                "members": _campaign_members_payload(members),
+                "cross_organization_matches_hidden": (
+                    organization_id is not None
+                    and len(organization_members) < len(members)
+                ),
+                "correlation_window_minutes": CORRELATION_WINDOW_MINUTES,
+                "tlsh_max_distance": TLSH_MAX_DISTANCE,
+                "members": scoped_members,
+                "correlations": scoped_correlations,
+                "hidden_correlation_count": hidden_correlation_count,
+                "historical_links_unavailable": (
+                    not scoped_correlations
+                    and hidden_correlation_count == 0
+                    and len(members) > 1
+                ),
             }
         )
 
@@ -454,6 +574,7 @@ def get_campaigns(
 )
 def get_campaign(
     campaign_id: str,
+    organization_id: int | None = None,
     db: Session = Depends(get_db),
 ):
 
@@ -464,6 +585,14 @@ def get_campaign(
             == campaign_id
         )
     )
+    if organization_id is not None:
+        campaign_statement = (
+            campaign_statement
+            .join(Dev2CampaignMember)
+            .join(Dev2Fingerprint)
+            .where(Dev2Fingerprint.organization_id == organization_id)
+            .distinct()
+        )
 
     campaign = (
         db.execute(
@@ -501,6 +630,16 @@ def get_campaign(
         .all()
     )
 
+    organization_members = [
+        member for member in members
+        if organization_id is None or member.fingerprint.organization_id == organization_id
+    ]
+    scoped_correlations, hidden_correlation_count = _campaign_correlations_payload(
+        db,
+        campaign.id,
+        members,
+        organization_id,
+    )
     return {
         "campaign_id": (
             campaign.campaign_id
@@ -520,10 +659,14 @@ def get_campaign(
 
         "tenant_count": (
             campaign.tenant_count
+            if organization_id is None
+            else len({member.tenant_id for member in organization_members})
         ),
 
         "email_count": (
             campaign.email_count
+            if organization_id is None
+            else len(organization_members)
         ),
 
         "status": (
@@ -532,9 +675,26 @@ def get_campaign(
 
         "summary": (
             campaign.summary
+            if organization_id is None
+            else "This organization has "
+            f"{len(organization_members)} correlated email(s). "
+            "Details for other organizations are hidden."
         ),
 
-        "members": _campaign_members_payload(members),
+        "cross_organization_matches_hidden": (
+            organization_id is not None
+            and len(organization_members) < len(members)
+        ),
+        "correlation_window_minutes": CORRELATION_WINDOW_MINUTES,
+        "tlsh_max_distance": TLSH_MAX_DISTANCE,
+        "members": _campaign_members_payload(members, organization_id),
+        "correlations": scoped_correlations,
+        "hidden_correlation_count": hidden_correlation_count,
+        "historical_links_unavailable": (
+            not scoped_correlations
+            and hidden_correlation_count == 0
+            and len(members) > 1
+        ),
     }
 
 

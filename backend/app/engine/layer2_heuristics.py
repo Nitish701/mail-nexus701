@@ -7,6 +7,54 @@ from urllib.parse import urlparse
 from app.engine.parser import ParsedEmail
 
 
+def _get_domain(text: str) -> str | None:
+	"""Extract a normalized domain from a URL or text."""
+	try:
+		if not text:
+			return None
+		parsed = urlparse(text)
+		netloc = (parsed.netloc or "").lower()
+		if not netloc:
+			if "@" in text:
+				return text.rsplit("@", 1)[-1].lower()
+			if "." in text:
+				match = re.search(r"([a-z0-9-]+(?:\.[a-z0-9-]+)+)", text.lower())
+				return match.group(1) if match else None
+			return None
+		netloc = netloc.split(":")[0]
+		return netloc
+	except Exception:
+		return None
+
+
+def _is_same_registrable_domain(dom1: str | None, dom2: str | None) -> bool:
+	"""Check if two domains share the same registrable domain."""
+	if not dom1 or not dom2:
+		return False
+	if dom1 == dom2:
+		return True
+
+	# Basic registrable domain logic:
+	# Handle multi-part TLDs (e.g., .co.uk, .org.in) via a common list.
+	MULTI_PART_TLDS = {
+		"uk", "jp", "au", "ca", "br", "in", "ru", "cn", "de", "fr", "it", "nl", "pl", "se", "no", "fi", "dk", "es", "mx", "cl", "ar", "co"
+	}
+
+	p1 = dom1.split(".")
+	p2 = dom2.split(".")
+
+	if len(p1) < 2 or len(p2) < 2:
+		return False
+
+	def get_registrable(parts: list[str]) -> str:
+		tld = parts[-1]
+		if len(parts) >= 3 and tld in MULTI_PART_TLDS:
+			return ".".join(parts[-3:])
+		return ".".join(parts[-2:])
+
+	return get_registrable(p1) == get_registrable(p2)
+
+
 SUSPICIOUS_TERMS = (
 	(re.compile(r"\b(urgent|immediately|act now| final notice)\b", re.IGNORECASE), "urgent language", 8),
 	(re.compile(r"\b(verify|confirm|unlock|reset)\b.{0,40}\b(password|account|login|credentials)\b", re.IGNORECASE), "credential request", 12),
@@ -64,6 +112,15 @@ def scan_heuristics(email: ParsedEmail) -> tuple[list[str], int]:
 		if pattern.search(combined_text):
 			findings.append(label)
 			score += points
+
+	# URL visible-text vs destination mismatch detection
+	for visible_text, href in email.html_links:
+		vis_dom = _get_domain(visible_text)
+		dst_dom = _get_domain(href)
+		if vis_dom and dst_dom and not _is_same_registrable_domain(vis_dom, dst_dom):
+			findings.append(f"URL mismatch: visible '{vis_dom}' vs destination '{dst_dom}'")
+			score += 12
+			break
 
 	has_credential_language = bool(CREDENTIAL_URL_PATTERN.search(combined_text))
 	for url in dict.fromkeys(email.urls):

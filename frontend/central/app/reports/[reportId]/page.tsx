@@ -130,6 +130,21 @@ export default async function CentralReportDetailPage({ params }: { params: { re
               <p style={{ margin: 0, color: '#dbeafe', lineHeight: 1.7, fontSize: 14 }}>
                 {String((report.advisory as Record<string, unknown> | undefined)?.summary || 'Investigation evidence and correlated telemetry are detailed below.')}
               </p>
+              <p style={{ margin: '10px 0 0', color: '#a5b7cc', fontSize: 12 }}>
+                AI explanation: {String((report.advisory as Record<string, unknown> | undefined)?.ai_status || 'not available').replace(/_/g, ' ')}
+              </p>
+              <p style={{ margin: '16px 0 0', color: '#dbeafe', lineHeight: 1.8, fontSize: 14, whiteSpace: 'pre-wrap' }}>
+                {String(
+                  (report.advisory as Record<string, unknown> | undefined)?.detailed_report ||
+                  'Detailed AI report is not available for this message.'
+                )}
+              </p>
+              <div style={{ marginTop: 14 }}>
+                <Field
+                  label="Recommended next steps"
+                  value={(report.advisory as Record<string, unknown> | undefined)?.recommended_actions}
+                />
+              </div>
             </Section>
 
             <Section title="Email Header & Sender Intelligence">

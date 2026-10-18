@@ -10,6 +10,7 @@ from sqlalchemy.orm import Session
 
 from .models import (
     Dev2Campaign,
+    Dev2CampaignCorrelation,
     Dev2CampaignMember,
     Dev2Fingerprint,
 )
@@ -99,10 +100,7 @@ def calculate_tlsh_difference(
     tlsh = _load_tlsh()
 
     if tlsh is None:
-        raise RuntimeError(
-            "TLSH library is not installed. "
-            "Install it with: pip install py-tlsh"
-        )
+        return None
 
     try:
 
@@ -282,6 +280,11 @@ def compare_fingerprint(
         distance = 0
         similarity = 0.95 if shared_ip else 0.88
         location_match, location_bonus = geo_match(current, candidate)
+        match_reasons = []
+        if shared_ip:
+            match_reasons.append("shared_source_ip")
+        if shared_domain:
+            match_reasons.append("shared_sender_domain")
         return {
             "fingerprint": candidate,
             "distance": distance,
@@ -289,6 +292,7 @@ def compare_fingerprint(
             "geo_match": location_match,
             "geo_bonus": location_bonus,
             "match_reason": "shared source IP" if shared_ip else "shared sender domain",
+            "match_reasons": match_reasons,
         }
 
     distance = calculate_tlsh_difference(
@@ -704,6 +708,18 @@ def create_or_update_campaign(
     # ADD MATCHED FINGERPRINTS
     # --------------------------------------------------------
 
+    existing_correlations = {}
+    if matches:
+        existing_correlations = {
+            correlation.matched_fingerprint_id: correlation
+            for correlation in db.execute(
+                select(Dev2CampaignCorrelation).where(
+                    Dev2CampaignCorrelation.campaign_id == campaign.id,
+                    Dev2CampaignCorrelation.source_fingerprint_id == fingerprint.id,
+                )
+            ).scalars().all()
+        }
+
     for match in matches:
 
         candidate = match["fingerprint"]
@@ -715,6 +731,32 @@ def create_or_update_campaign(
             similarity=match["similarity"],
             distance=match["distance"],
         )
+
+        match_reasons = match.get("match_reasons")
+        if match_reasons:
+            match_method = "+".join(match_reasons)
+        else:
+            match_reason = match.get("match_reason")
+            match_method = (
+                match_reason.replace(" ", "_").lower()
+                if match_reason
+                else "similar_fingerprint"
+            )
+        correlation = existing_correlations.get(candidate.id)
+        if correlation is None:
+            db.add(Dev2CampaignCorrelation(
+                campaign_id=campaign.id,
+                source_fingerprint_id=fingerprint.id,
+                matched_fingerprint_id=candidate.id,
+                similarity=match["similarity"],
+                correlation_distance=match["distance"],
+                match_method=match_method,
+                created_at=fingerprint.created_at or utc_now(),
+            ))
+        elif match["similarity"] > correlation.similarity:
+            correlation.similarity = match["similarity"]
+            correlation.correlation_distance = match["distance"]
+            correlation.match_method = match_method
 
     # --------------------------------------------------------
     # RECALCULATE STATISTICS

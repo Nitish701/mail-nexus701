@@ -1,3 +1,5 @@
+from typing import Literal
+
 from pydantic import BaseModel, Field
 
 
@@ -39,7 +41,9 @@ class EmailFingerprint(BaseModel):
 class ThreatAdvisory(BaseModel):
 	status: str
 	summary: str
+	detailed_report: str = ""
 	recommended_actions: list[str] = Field(default_factory=list)
+	ai_status: str = "not_requested"
 	json_export: dict[str, object]
 	csv: str
 
@@ -59,4 +63,5 @@ class InboundEmailResponse(BaseModel):
 	fingerprint: EmailFingerprint
 	threat_advisory: ThreatAdvisory
 	base_score: int = Field(ge=0, le=70)
+	risk_disposition: Literal["low", "medium", "high", "review"]
 	report_id: str | None = None

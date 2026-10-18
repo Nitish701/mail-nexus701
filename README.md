@@ -243,6 +243,12 @@ email. Do not commit tunnel credentials, API keys, or production secrets.
 | `MAIL_NEXUS_MODEL_PATH` | Path to `body_model.joblib` |
 | `MAIL_NEXUS_YARA_RULES_DIR` | Directory containing `*.yar` rules |
 | `VIRUSTOTAL_API_KEY` | Enables VirusTotal lookups |
+| `MAIL_NEXUS_VIRUSTOTAL_TIMEOUT_SECONDS` | VirusTotal lookup limit in seconds (default `1.5`; also extends the static-scan budget when VirusTotal is enabled) |
+| `MAIL_NEXUS_ZIP_MAX_ENTRIES` | Maximum ZIP members scanned across an email and its nested ZIPs (default `100`) |
+| `MAIL_NEXUS_ZIP_MAX_MEMBER_BYTES` | Maximum decompressed bytes read from one ZIP member (default `10485760`) |
+| `MAIL_NEXUS_ZIP_MAX_TOTAL_BYTES` | Maximum total decompressed bytes read across all ZIPs in an email (default `52428800`) |
+| `MAIL_NEXUS_ZIP_MAX_COMPRESSION_RATIO` | Maximum decompressed-to-compressed ratio for a ZIP member (default `100`) |
+| `MAIL_NEXUS_ZIP_MAX_NESTED_DEPTH` | Maximum nested ZIP levels scanned (default `2`) |
 | `REDIS_URL` | VirusTotal result cache |
 | `LLM_PROVIDER` | `ollama` (default) or `groq` |
 | `GROQ_API_KEY` / `OLLAMA_URL` | Advisory provider credentials/endpoints |

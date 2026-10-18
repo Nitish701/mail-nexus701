@@ -2,13 +2,50 @@ from __future__ import annotations
 
 import re
 
+from app.config import TRUSTED_AUTHSERV_IDS
 from app.engine.parser import ParsedEmail
 
 
 VERDICT_PATTERN = re.compile(r"(?:spf|dkim)=(pass|fail|softfail|neutral|none|temperror|permerror)", re.IGNORECASE)
 
 
+def _trusted_authentication_results(
+	email: ParsedEmail,
+	trusted_authserv_ids: frozenset[str],
+) -> list[str]:
+	trusted_results = []
+	for value in email.headers.get("authentication-results", []):
+		authserv_id = value.split(";", 1)[0].strip().lower()
+		if authserv_id in trusted_authserv_ids:
+			trusted_results.append(value)
+	return trusted_results
+
+
+def has_trusted_authentication(
+	email: ParsedEmail,
+	trusted_authserv_ids: frozenset[str] = TRUSTED_AUTHSERV_IDS,
+) -> bool:
+	"""Return true only for SPF and DKIM passes from a configured authserv-id."""
+	trusted_results = _trusted_authentication_results(email, trusted_authserv_ids)
+	for mechanism in ("spf", "dkim"):
+		verdicts = [
+			verdict.lower()
+			for result in trusted_results
+			for verdict in re.findall(rf"\b{mechanism}=([a-z]+)", result, re.IGNORECASE)
+		]
+		if not verdicts or any(verdict != "pass" for verdict in verdicts):
+			return False
+	return bool(trusted_results)
+
+
 def _header_verdict(email: ParsedEmail, mechanism: str) -> str | None:
+	trusted_results = _trusted_authentication_results(email, TRUSTED_AUTHSERV_IDS)
+	if trusted_results:
+		for value in trusted_results:
+			match = re.search(rf"\b{mechanism}=([a-z]+)", value, re.IGNORECASE)
+			if match:
+				return match.group(1).lower()
+
 	for header_name in ("authentication-results", "received-spf"):
 		for value in email.headers.get(header_name, []):
 			match = re.search(rf"\b{mechanism}=([a-z]+)", value, re.IGNORECASE)
@@ -47,10 +84,16 @@ def validate_authentication(email: ParsedEmail) -> dict[str, dict[str, str | int
 			"reason": "From and Return-Path domains do not align",
 			"score": 5,
 		}
+	elif not from_domain or not return_domain:
+		checks["alignment"] = {
+			"status": "unknown",
+			"reason": "From or Return-Path domain is unavailable",
+			"score": 0,
+		}
 	else:
 		checks["alignment"] = {
 			"status": "pass",
-			"reason": "From and Return-Path domains align or are unavailable",
+			"reason": "From and Return-Path domains align",
 			"score": 0,
 		}
 	return checks

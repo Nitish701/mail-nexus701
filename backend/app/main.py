@@ -2,14 +2,23 @@ import asyncio
 import hmac
 import logging
 import re
+import threading
 from email.utils import parseaddr
 
-from fastapi import Depends, FastAPI, HTTPException, Request
+from fastapi import BackgroundTasks, Depends, FastAPI, HTTPException, Request
 from fastapi.middleware.cors import CORSMiddleware
 from sqlalchemy import inspect, text, select
 from sqlalchemy.orm import Session
 
-from app.config import COLLEGE_DOMAINS, CORS_ORIGINS, LAYER_TIMEOUT_SECONDS, MODEL_PATH, WEBHOOK_SECRET
+from app.config import (
+	COLLEGE_DOMAINS,
+	CORS_ORIGINS,
+	LAYER_TIMEOUT_SECONDS,
+	MODEL_PATH,
+	VIRUSTOTAL_API_KEY,
+	VIRUSTOTAL_TIMEOUT_SECONDS,
+	WEBHOOK_SECRET,
+)
 from app.developer2.database import Base, engine, get_db
 from app.developer2 import models as developer2_models
 from app.developer2.router import router as developer2_router, submit_fingerprint
@@ -17,20 +26,27 @@ from app.developer2.geo import enrich_ip, private_relay_note
 from app.developer2.schemas import FingerprintEvent
 from app.reports.router import router as reports_router
 from app.services import report_generator, report_store
-from app.engine.layer1_auth import validate_authentication
+from app.engine.layer1_auth import has_trusted_authentication, validate_authentication
 from app.engine.layer2_heuristics import scan_heuristics
 from app.engine.layer3_ml import BodyTextModel
 from app.engine.layer4_yara import StaticScanResult, scan_attachments
 from app.engine.parser import parse_mime
-from app.engine.risk_scoring import calculate_risk_score
+from app.engine.risk_scoring import calculate_risk_score, classify_risk_disposition
 from app.fingerprint import build_email_fingerprint
-from app.services.llm_summarizer import advisory_exports, generate_threat_advisory
+from app.services.llm_summarizer import (
+	AdvisoryResult,
+	advisory_exports,
+	build_deterministic_advisory,
+	enforce_risk_disposition,
+	generate_ai_explanation,
+)
 from app.schemas import Attachment, AuthenticationCheck, InboundEmailResponse, LayerCheck, ThreatAdvisory
 
 
 app = FastAPI(title="Mail-Nexus API", version="0.1.0")
 logger = logging.getLogger("mail_nexus.ingestion")
 MAX_EMAIL_BYTES = 25 * 1024 * 1024
+_AI_EXPLANATION_LOCK = threading.Lock()
 body_text_model = BodyTextModel(MODEL_PATH)
 Base.metadata.create_all(bind=engine)
 report_store.ReportBase.metadata.create_all(bind=engine)
@@ -168,9 +184,57 @@ async def verify_college_domain(payload: dict[str, str], db: Session = Depends(g
 
 async def _scan_static_with_budget(attachments) -> StaticScanResult:
 	try:
-		return await asyncio.wait_for(scan_attachments(attachments), timeout=LAYER_TIMEOUT_SECONDS)
+		static_scan_timeout = LAYER_TIMEOUT_SECONDS
+		if VIRUSTOTAL_API_KEY:
+			static_scan_timeout += VIRUSTOTAL_TIMEOUT_SECONDS
+		return await asyncio.wait_for(scan_attachments(attachments), timeout=static_scan_timeout)
 	except asyncio.TimeoutError:
-		return StaticScanResult("timeout", 0, ["Static checks exceeded latency budget"], {})
+		return StaticScanResult("timeout", 10, ["Static checks exceeded latency budget"], {})
+
+
+def _persist_ai_explanation(report_id: str, advisory: AdvisoryResult) -> None:
+	with Session(bind=engine) as background_db:
+		updated = report_store.update_report_advisory(
+			background_db,
+			report_id,
+			{
+				"status": advisory.status,
+				"summary": advisory.summary,
+				"detailed_report": advisory.detailed_report,
+				"recommended_actions": advisory.recommended_actions,
+				"ai_status": advisory.ai_status,
+			},
+		)
+	if not updated:
+		logger.warning("AI explanation completed but report %s no longer exists", report_id)
+
+
+def _generate_ai_explanation_for_report(
+	report_id: str,
+	advisory: AdvisoryResult,
+	score: int,
+) -> None:
+	if not _AI_EXPLANATION_LOCK.acquire(blocking=False):
+		logger.info("Skipping optional AI explanation for report %s; local model is busy", report_id)
+		try:
+			_persist_ai_explanation(report_id, AdvisoryResult(
+				advisory.status,
+				advisory.summary,
+				advisory.recommended_actions,
+				advisory.detailed_report,
+				"skipped_busy",
+			))
+		except Exception:
+			logger.exception("Failed to record skipped AI explanation for report %s", report_id)
+		return
+
+	try:
+		completed = asyncio.run(generate_ai_explanation(advisory, score))
+		_persist_ai_explanation(report_id, completed)
+	except Exception:
+		logger.exception("Failed to generate or save AI explanation for report %s", report_id)
+	finally:
+		_AI_EXPLANATION_LOCK.release()
 
 
 @app.get("/health")
@@ -180,7 +244,11 @@ async def health() -> dict[str, str]:
 
 @app.post("/api/v1/inbound", response_model=InboundEmailResponse)
 @app.post("/webhooks/email", response_model=InboundEmailResponse)
-async def inbound_email(request: Request, db: Session = Depends(get_db)) -> InboundEmailResponse:
+async def inbound_email(
+	request: Request,
+	background_tasks: BackgroundTasks,
+	db: Session = Depends(get_db),
+) -> InboundEmailResponse:
 	if WEBHOOK_SECRET:
 		authorization = request.headers.get("authorization", "")
 		expected = f"Bearer {WEBHOOK_SECRET}"
@@ -228,10 +296,64 @@ async def inbound_email(request: Request, db: Session = Depends(get_db)) -> Inbo
 		ml_result.score,
 		static_result.score,
 		suspicious_infrastructure,
+		parsed.from_domain,
+		has_trusted_authentication(parsed),
 	)
+	risk_disposition = classify_risk_disposition(base_score, ml_result.probability)
 	fingerprint = build_email_fingerprint(parsed)
 	all_findings = heuristic_findings + static_result.findings
-	advisory = await generate_threat_advisory(base_score, all_findings, fingerprint.redacted_body)
+	advisory_evidence = {
+		"message": {
+			"subject": parsed.subject,
+			"sender_domain": parsed.from_domain,
+			"urls": parsed.urls,
+			"attachments": [
+				{
+					"filename": attachment.filename,
+					"content_type": attachment.content_type,
+					"size_bytes": attachment.size,
+				}
+				for attachment in parsed.attachments
+			],
+		},
+		"authentication": authentication,
+		"layers": {
+			"heuristics": {"score": heuristic_score, "findings": heuristic_findings},
+			"ml": {
+				"score": ml_result.score,
+				"probability": ml_result.probability,
+				"reason": ml_result.reason,
+			},
+			"static": {
+				"score": static_result.score,
+				"status": static_result.status,
+				"findings": static_result.findings,
+			},
+			"infrastructure": {
+				"suspicious": suspicious_infrastructure,
+				"country": geo.country if geo else None,
+				"asn": geo.asn if geo else None,
+				"confidence": geo.confidence if geo else None,
+			},
+		},
+		"virus_total": static_result.virus_total,
+		"final_system_decision": {
+			"score": base_score,
+			"maximum_score": 70,
+			"disposition": risk_disposition,
+		},
+	}
+	advisory = enforce_risk_disposition(
+		build_deterministic_advisory(
+			base_score,
+			all_findings,
+			parsed.subject_and_body,
+			advisory_evidence,
+		),
+		risk_disposition,
+		base_score,
+		ml_result.probability,
+	)
 	advisory_json, advisory_csv = advisory_exports(advisory, base_score, parsed.message_id)
 
 	response = InboundEmailResponse(
@@ -253,13 +375,18 @@ async def inbound_email(request: Request, db: Session = Depends(get_db)) -> Inbo
 		threat_advisory=ThreatAdvisory(
 			status=advisory.status,
 			summary=advisory.summary,
+			detailed_report=advisory.detailed_report,
 			recommended_actions=advisory.recommended_actions,
+			ai_status=advisory.ai_status,
 			json_export=advisory_json,
 			csv=advisory_csv,
 		),
 		base_score=base_score,
+		risk_disposition=risk_disposition,
 	)
 
+	report_id: str | None = None
+	report_saved = False
 	try:
 		report_id = report_store.generate_report_id("email")
 		report_payload = response.model_dump(mode="json")
@@ -277,9 +404,23 @@ async def inbound_email(request: Request, db: Session = Depends(get_db)) -> Inbo
 		report = report_generator.build_email_report(report_payload, report_id)
 		report["organization_id"] = organization.id if organization else None
 		report_store.save_report(db, report)
+		report_saved = True
 		response.report_id = report_id
 	except Exception:
 		logger.exception("Failed to persist email report for message_id=%s", response.message_id)
+		response.threat_advisory.ai_status = "not_scheduled"
+		advisory.ai_status = "not_scheduled"
+		advisory_json, advisory_csv = advisory_exports(advisory, base_score, parsed.message_id)
+		response.threat_advisory.json_export = advisory_json
+		response.threat_advisory.csv = advisory_csv
+
+	if report_saved and report_id is not None:
+		background_tasks.add_task(
+			_generate_ai_explanation_for_report,
+			report_id,
+			advisory,
+			base_score,
+		)
 
 	if base_score >= 20:
 		try:

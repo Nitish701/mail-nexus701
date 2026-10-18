@@ -12,7 +12,7 @@ export default function CentralInvestigationsPage() {
   const [reports, setReports] = useState<Report[]>([]);
   const [loading, setLoading] = useState(true);
   const [searchQuery, setSearchQuery] = useState('');
-  const [severityFilter, setSeverityFilter] = useState<'all' | 'critical' | 'high' | 'medium' | 'low'>('all');
+  const [severityFilter, setSeverityFilter] = useState<'all' | 'critical' | 'high' | 'medium' | 'low' | 'review'>('all');
 
   useEffect(() => {
     let cancelled = false;
@@ -150,7 +150,7 @@ export default function CentralInvestigationsPage() {
 
           <div style={{ display: 'flex', alignItems: 'center', gap: 12, flexWrap: 'wrap' }}>
             <div className="soc-pill-group">
-              {(['all', 'critical', 'high', 'medium', 'low'] as const).map((sev) => (
+              {(['all', 'critical', 'high', 'medium', 'low', 'review'] as const).map((sev) => (
                 <button
                   key={sev}
                   type="button"

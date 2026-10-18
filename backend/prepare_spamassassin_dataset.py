@@ -1,4 +1,8 @@
-"""Convert SpamAssassin public corpus archives into text,label CSV data."""
+"""Extract legitimate-only SpamAssassin messages.
+
+SpamAssassin spam is generic spam, not a phishing label. Use
+prepare_phishing_email_dataset.py to build a phishing-vs-legitimate dataset.
+"""
 
 from __future__ import annotations
 
@@ -28,7 +32,7 @@ def message_text(raw_message: bytes) -> str:
 	return "\n".join(part for part in parts if part).strip()
 
 
-def read_archive(archive_path: Path, label: int) -> list[tuple[str, int]]:
+def read_archive(archive_path: Path) -> list[tuple[str, int]]:
 	rows: list[tuple[str, int]] = []
 	with tarfile.open(archive_path, "r:bz2") as archive:
 		for member in archive.getmembers():
@@ -39,23 +43,25 @@ def read_archive(archive_path: Path, label: int) -> list[tuple[str, int]]:
 				continue
 			text = message_text(file_object.read())
 			if text:
-				rows.append((text, label))
+				rows.append((text, 0))
 	return rows
 
 
 def main() -> None:
 	parser = argparse.ArgumentParser()
-	parser.add_argument("ham_archive", type=Path)
-	parser.add_argument("spam_archive", type=Path)
+	parser.add_argument("ham_archive", type=Path, help="SpamAssassin easy_ham archive")
 	parser.add_argument("output", type=Path)
 	args = parser.parse_args()
-	rows = read_archive(args.ham_archive, 0) + read_archive(args.spam_archive, 1)
+	rows = read_archive(args.ham_archive)
 	args.output.parent.mkdir(parents=True, exist_ok=True)
 	with args.output.open("w", newline="", encoding="utf-8") as output:
 		writer = csv.writer(output)
 		writer.writerow(["text", "label"])
 		writer.writerows(rows)
-	print(f"Wrote {len(rows)} labeled messages to {args.output}")
+	print(
+		f"Wrote {len(rows)} legitimate-only messages to {args.output}. "
+		"Spam archives are intentionally not mapped to the phishing class."
+	)
 
 
 if __name__ == "__main__":

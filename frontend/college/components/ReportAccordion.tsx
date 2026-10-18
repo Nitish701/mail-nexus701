@@ -57,6 +57,14 @@ export function ReportAccordion({ reports }: { reports: EmailReport[] }) {
           <ReportSection title="Risk"><div className="report-detail-grid"><div><label>Score</label><strong>{displayValue((detail.risk as Record<string, unknown> | undefined)?.base_score)} / 70</strong></div><div><label>Severity</label><strong>{displayValue((detail.risk as Record<string, unknown> | undefined)?.severity)}</strong></div><div><label>Status</label><strong>{displayValue((detail.risk as Record<string, unknown> | undefined)?.status)}</strong></div></div></ReportSection>
           <ReportSection title="Findings"><div className="report-detail-copy">{displayValue(detail.findings)}</div></ReportSection>
           <ReportSection title="Authentication"><div className="report-detail-copy">{displayValue(detail.authentication)}</div></ReportSection>
+          <ReportSection title="Plain-language forensic report">
+            <div className="muted" style={{ marginBottom: 8 }}>
+              AI explanation: {displayValue((detail.advisory as Record<string, unknown> | undefined)?.ai_status).replace(/_/g, ' ')}
+            </div>
+            <div className="report-detail-copy" style={{ whiteSpace: 'pre-wrap' }}>
+              {displayValue((detail.advisory as Record<string, unknown> | undefined)?.detailed_report)}
+            </div>
+          </ReportSection>
           <ReportSection title="Location"><div className="report-detail-copy">{displayValue(detail.geolocation)}</div></ReportSection>
           <ReportSection title="Recommended action"><div className="report-detail-copy">{displayValue((detail.advisory as Record<string, unknown> | undefined)?.recommended_actions || (detail.advisory as Record<string, unknown> | undefined)?.summary)}</div></ReportSection>
         </> : <p className="muted">Report details are temporarily unavailable.</p>}

@@ -67,7 +67,9 @@ def build_email_report(payload: dict[str, Any], report_id: str) -> dict[str, Any
 	ml = layers.get("layer3_ml") or {}
 
 	base_score = int(payload.get("base_score") or 0)
-	severity = severity_for_score(base_score)
+	score_severity = severity_for_score(base_score)
+	disposition = payload.get("risk_disposition") or advisory.get("status") or score_severity
+	severity = disposition
 
 	findings = _flatten_findings(
 		payload.get("heuristic_findings"),
@@ -90,8 +92,10 @@ def build_email_report(payload: dict[str, Any], report_id: str) -> dict[str, Any
 		"risk": {
 			"base_score": base_score,
 			"max_score": 70,
-			"severity": severity,
-			"status": advisory.get("status") or severity,
+			"severity": disposition,
+			"score_band": score_severity,
+			"status": disposition,
+			"disposition": disposition,
 		},
 		"message": {
 			"message_id": payload.get("message_id"),
@@ -127,7 +131,9 @@ def build_email_report(payload: dict[str, Any], report_id: str) -> dict[str, Any
 		"advisory": {
 			"status": advisory.get("status"),
 			"summary": advisory.get("summary"),
+			"detailed_report": advisory.get("detailed_report"),
 			"recommended_actions": advisory.get("recommended_actions") or [],
+			"ai_status": advisory.get("ai_status") or "not_requested",
 		},
 	}
 
@@ -318,6 +324,10 @@ def render_markdown(report: dict[str, Any]) -> str:
 	for action in advisory.get("recommended_actions") or []:
 		lines.append(f"- {action}")
 	lines.append("")
+	if advisory.get("detailed_report"):
+		lines.append("## Plain-language forensic report")
+		lines.append(str(advisory["detailed_report"]))
+		lines.append("")
 
 	lines.append("## URLs")
 	if report.get("urls"):
@@ -454,6 +464,12 @@ def render_html(report: dict[str, Any]) -> str:
 	parts.append("<h2>Findings</h2><div class='card'>" + _html_list(report.get("findings"), "No findings.") + "</div>")
 	parts.append("<h2>Advisory</h2><div class='card'><p>" + escape(str(advisory.get("summary") or "")) + "</p>"
 	             + _html_list(advisory.get("recommended_actions"), "No actions.") + "</div>")
+	if advisory.get("detailed_report"):
+		parts.append(
+			"<h2>Plain-language forensic report</h2><div class='card' style='white-space:pre-wrap;line-height:1.6'>"
+			+ escape(str(advisory["detailed_report"]))
+			+ "</div>"
+		)
 
 	parts.append("<h2>URLs</h2><div class='card'>" + _html_list(report.get("urls"), "No URLs.") + "</div>")
 
