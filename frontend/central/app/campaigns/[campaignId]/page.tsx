@@ -52,8 +52,9 @@ function uniqueValues(members: CampaignMember[], key: 'source_ip' | 'sender_doma
   return [...counts.entries()].map(([value, count]) => ({ value, count }));
 }
 
-export default async function CampaignDetailPage({ params }: { params: { campaignId: string } }) {
-  const campaign = await fetchCentralCampaignDetail(params.campaignId);
+export default async function CampaignDetailPage({ params }: { params: Promise<{ campaignId: string }> }) {
+  const { campaignId } = await params;
+  const campaign = await fetchCentralCampaignDetail(campaignId);
 
   if (!campaign) {
     return (

@@ -6,7 +6,10 @@ BASE_DIR = Path(__file__).resolve().parents[1]
 # This is an uncalibrated-model review guardrail, not a phishing probability guarantee.
 ML_REVIEW_PROBABILITY_THRESHOLD = float(os.getenv("MAIL_NEXUS_ML_REVIEW_THRESHOLD", "0.98"))
 if not 0.0 <= ML_REVIEW_PROBABILITY_THRESHOLD <= 1.0:
-	raise ValueError("MAIL_NEXUS_ML_REVIEW_THRESHOLD must be between 0 and 1")
+    raise ValueError("MAIL_NEXUS_ML_REVIEW_THRESHOLD must be between 0 and 1")
+
+# Maximum raw email payload size: 50 MiB by default.
+MAX_EMAIL_BYTES = int(os.getenv("MAIL_NEXUS_MAX_EMAIL_BYTES", 50 * 1024 * 1024))
 MODEL_PATH = Path(os.getenv("MAIL_NEXUS_MODEL_PATH", BASE_DIR / "models" / "body_model.joblib"))
 BODY_MODEL_MODE = os.getenv("MAIL_NEXUS_BODY_MODEL_MODE", "auto").lower()
 # Set only to authserv-ids inserted by trusted ingress after sender-supplied copies are removed.
@@ -38,6 +41,13 @@ WEBHOOK_SECRET = os.getenv("WEBHOOK_SECRET")
 DATABASE_URL = os.getenv("MAIL_NEXUS_DATABASE_URL", f"sqlite:///{BASE_DIR / 'mail_nexus.db'}")
 IP_INTELLIGENCE_PATH = Path(os.getenv("MAIL_NEXUS_IP_INTELLIGENCE_PATH", BASE_DIR / "data" / "ip_intelligence.csv"))
 GEOLOCATION_URL = os.getenv("MAIL_NEXUS_GEOLOCATION_URL", "https://ipwho.is")
+IPINFO_TOKEN = os.getenv("IPINFO_TOKEN")
+GEOLOCATION_TIMEOUT_SECONDS = float(os.getenv("MAIL_NEXUS_GEOLOCATION_TIMEOUT_SECONDS", "1.5"))
+TRUSTED_RECEIVED_HOSTS = {
+	host.strip().lower().rstrip(".")
+	for host in os.getenv("MAIL_NEXUS_TRUSTED_RECEIVED_HOSTS", "").split(",")
+	if host.strip()
+}
 COLLEGE_DOMAINS = {
 	domain.strip().lower()
 	for domain in os.getenv("MAIL_NEXUS_COLLEGE_DOMAINS", "college-example.edu.in,cgc.edu.in,edushield1.in,edushiel1.in").split(",")

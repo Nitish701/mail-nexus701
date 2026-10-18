@@ -76,6 +76,11 @@ def main() -> None:
 	one = client.get(f"/api/reports/{report_id}")
 	assert one.status_code == 200, one.text
 	assert one.json()["report_type"] == "email"
+	geolocation = one.json()["geolocation"]
+	assert geolocation["ip_status"] == "unavailable"
+	assert geolocation["origin_type"] == "unknown_origin"
+	assert geolocation["source_ip"] is None
+	assert "no location was inferred" in geolocation["location_note"]
 	print("get ok, findings =", len(one.json()["findings"]))
 
 	# download each format

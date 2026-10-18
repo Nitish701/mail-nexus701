@@ -31,3 +31,8 @@ cloudflared tunnel --config cloudflared/config.yml run
 ```
 
 The local webhook must listen on `http://localhost:8000` and accept the raw request body without JSON parsing.
+
+## Size limitations
+
+- **Backend limit:** The Mail-Nexus backend accepts raw email payloads up to **50 MiB (52,428,800 bytes)** via direct API ingestion (`/api/v1/inbound` or `/webhooks/email`).
+- **Cloudflare Email Routing restriction:** Cloudflare Email Routing enforces a platform-level limit of **25 MB** on incoming SMTP emails before invoking the Worker. Emails exceeding 25 MB delivered via SMTP are rejected upstream by Cloudflare. Direct webhook/API submissions to the backend are not subject to this 25 MB SMTP limit and can utilize the full 50 MiB capacity.

@@ -238,6 +238,7 @@ email. Do not commit tunnel credentials, API keys, or production secrets.
 
 | Variable | Purpose |
 | --- | --- |
+| `MAIL_NEXUS_MAX_EMAIL_BYTES` | Maximum raw email payload size in bytes (default: `52428800` = 50 MiB) |
 | `WEBHOOK_SECRET` | Shared secret required on the ingestion webhook |
 | `MAIL_NEXUS_DATABASE_URL` | SQLAlchemy database URL (default SQLite) |
 | `MAIL_NEXUS_MODEL_PATH` | Path to `body_model.joblib` |
@@ -253,15 +254,27 @@ email. Do not commit tunnel credentials, API keys, or production secrets.
 | `LLM_PROVIDER` | `ollama` (default) or `groq` |
 | `GROQ_API_KEY` / `OLLAMA_URL` | Advisory provider credentials/endpoints |
 | `MAIL_NEXUS_IP_INTELLIGENCE_PATH` | Local CIDR geo/VPN override CSV |
+| `MAIL_NEXUS_TRUSTED_RECEIVED_HOSTS` | Comma-separated exact `by` hostnames of trusted receiving MTAs |
+| `IPINFO_TOKEN` | Optional IPinfo token for ASN and network-ownership intelligence |
+| `MAIL_NEXUS_GEOLOCATION_TIMEOUT_SECONDS` | Geolocation-provider request timeout (default `1.5`) |
 
 Optional integrations fail gracefully to deterministic local behavior where possible,
 so the core demonstration remains reproducible without VirusTotal, Redis, Groq, Ollama,
 Cloudflare, or a trained model service.
 
+Geolocation enriches only a public peer IP from the topmost `Received` field when its
+receiving MTA is listed in `MAIL_NEXUS_TRUSTED_RECEIVED_HOSTS`; proxy-style headers
+and `X-Originating-IP` are not trusted. Without that configured evidence, the report
+marks the sender-side IP unavailable instead of inferring a sender location. The
+existing ipwho.is-compatible `GEOLOCATION_URL` supplies approximate location;
+`IPINFO_TOKEN` optionally adds ASN, ownership, and network-type data. IPinfo account
+plans can limit fields and request volume, so configure the token according to the
+provider's current plan. IPinfo is optional; no paid software dependency is added.
+
 ## Security and privacy notes
 
 - Webhook requests can require a Bearer secret via `WEBHOOK_SECRET`.
-- Email payloads are size-limited to 25 MiB and malformed MIME is rejected.
+- Email payloads are size-limited to 50 MiB (52,428,800 bytes) with streaming bounded enforcement, and malformed MIME is rejected.
 - PII is sanitized before fingerprints are used for correlation.
 - Organization and domain routing prevents unrelated tenant data from being mixed.
 - Production deployments must use HTTPS, restricted CORS origins, secret management,
@@ -274,3 +287,9 @@ Cloudflare, or a trained model service.
    optional production integrations.
 - The included model and YARA rules are starter assets intended for a working demo;
    production deployments should retrain and review them against representative data.
+
+### Upstream and reverse proxy limitations
+
+- **Cloudflare Email Routing:** When emails are delivered via Cloudflare Email Routing to the Worker, Cloudflare enforces an upstream platform limit of **25 MB** at the SMTP envelope stage. Inbound SMTP emails exceeding 25 MB are rejected by Cloudflare before reaching the Worker.
+- **Direct HTTP Ingestion & Cloudflare Tunnel:** Direct ingestion via `POST /api/v1/inbound` or `POST /webhooks/email` supports the full **50 MiB** payload. Cloudflare's HTTP edge proxy limit for Free/Pro/Business plans is 100 MB, which accommodates 50 MiB payloads without restriction.
+- **Nginx Reverse Proxy:** If Nginx is deployed as a reverse proxy in front of the FastAPI backend, Nginx's default `client_max_body_size` is 1 MB. Administrators must explicitly configure `client_max_body_size 50M;` (or higher) in the Nginx configuration to avoid HTTP 413 responses from Nginx.

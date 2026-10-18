@@ -16,7 +16,7 @@ from sqlalchemy.orm import Session
 from .broadcaster import broadcaster
 from .correlation import CORRELATION_WINDOW_MINUTES, TLSH_MAX_DISTANCE, correlate_fingerprint
 from .database import get_db
-from .geo import enrich_ip
+from .geo import enrich_ip, location_note
 from .models import (
     Dev2Campaign,
     Dev2CampaignCorrelation,
@@ -363,6 +363,10 @@ async def submit_fingerprint(
                 "asn": geo_asn,
                 "is_vpn_proxy": is_vpn_proxy,
                 "confidence": geo_confidence,
+                "network_owner": geo.network_owner if geo else None,
+                "origin_type": geo.origin_type if geo else "unknown_origin",
+                "location_is_infrastructure": geo.location_is_infrastructure if geo else False,
+                "location_note": location_note(geo, source_ip),
             },
         },
     )

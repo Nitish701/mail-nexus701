@@ -4,7 +4,7 @@ const baseUrl = typeof window === 'undefined'
 
 async function organizationQuery() {
   const { cookies } = await import('next/headers');
-  const value = cookies().get('mail-nexus-organization-id')?.value;
+  const value = (await cookies()).get('mail-nexus-organization-id')?.value;
   return value ? `&organization_id=${encodeURIComponent(value)}` : '';
 }
 

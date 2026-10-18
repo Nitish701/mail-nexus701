@@ -5,6 +5,9 @@
     "college",
     "central"
   ],
+  "overrides": {
+    "postcss": "8.5.30"
+  },
   "scripts": {
     "dev:college": "npm --prefix college run dev",
     "dev:central": "npm --prefix central run dev",

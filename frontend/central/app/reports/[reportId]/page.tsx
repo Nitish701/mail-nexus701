@@ -49,8 +49,9 @@ function formatValue(value: unknown): string {
   return String(value);
 }
 
-export default async function CentralReportDetailPage({ params }: { params: { reportId: string } }) {
-  const report = await fetchCentralReportDetails(params.reportId);
+export default async function CentralReportDetailPage({ params }: { params: Promise<{ reportId: string }> }) {
+  const { reportId } = await params;
+  const report = await fetchCentralReportDetails(reportId);
   const message = report?.message as Record<string, unknown> | undefined;
   const risk = report?.risk as Record<string, unknown> | undefined;
   const geo = report?.geolocation as Record<string, unknown> | undefined;
@@ -75,9 +76,9 @@ export default async function CentralReportDetailPage({ params }: { params: { re
                 <div className="report-hero-kicker">MAIL-NEXUS · FEDERATED FORENSIC DOSSIER</div>
                 <span className={`soc-badge ${sev}`}>{sev} severity</span>
               </div>
-              <h2 style={{ fontSize: 24, margin: '8px 0' }}>{String(report.title || params.reportId)}</h2>
+              <h2 style={{ fontSize: 24, margin: '8px 0' }}>{String(report.title || reportId)}</h2>
               <div className="report-hero-meta">
-                Identifier: <span style={{ color: '#8ec5ff' }}>{params.reportId}</span> · Organization {String(report.organization_id || 'Cross-Tenant')}
+                Identifier: <span style={{ color: '#8ec5ff' }}>{reportId}</span> · Organization {String(report.organization_id || 'Cross-Tenant')}
               </div>
             </header>
 

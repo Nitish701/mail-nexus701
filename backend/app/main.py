@@ -14,15 +14,16 @@ from app.config import (
 	COLLEGE_DOMAINS,
 	CORS_ORIGINS,
 	LAYER_TIMEOUT_SECONDS,
-	MODEL_PATH,
-	VIRUSTOTAL_API_KEY,
-	VIRUSTOTAL_TIMEOUT_SECONDS,
-	WEBHOOK_SECRET,
+    MAX_EMAIL_BYTES,
+    MODEL_PATH,
+    VIRUSTOTAL_API_KEY,
+    VIRUSTOTAL_TIMEOUT_SECONDS,
+    WEBHOOK_SECRET,
 )
 from app.developer2.database import Base, engine, get_db
 from app.developer2 import models as developer2_models
 from app.developer2.router import router as developer2_router, submit_fingerprint
-from app.developer2.geo import enrich_ip, private_relay_note
+from app.developer2.geo import enrich_ip, location_note, private_relay_note
 from app.developer2.schemas import FingerprintEvent
 from app.reports.router import router as reports_router
 from app.services import report_generator, report_store
@@ -45,8 +46,11 @@ from app.schemas import Attachment, AuthenticationCheck, InboundEmailResponse, L
 
 app = FastAPI(title="Mail-Nexus API", version="0.1.0")
 logger = logging.getLogger("mail_nexus.ingestion")
+<<<<<<< HEAD
 MAX_EMAIL_BYTES = 25 * 1024 * 1024
 _AI_EXPLANATION_LOCK = threading.Lock()
+=======
+>>>>>>> b7b7db0 (Update project features)
 body_text_model = BodyTextModel(MODEL_PATH)
 Base.metadata.create_all(bind=engine)
 report_store.ReportBase.metadata.create_all(bind=engine)
@@ -255,20 +259,36 @@ async def inbound_email(
 		if not hmac.compare_digest(authorization, expected):
 			raise HTTPException(status_code=401, detail="Invalid webhook secret")
 
+	max_size_label = (
+		f"{MAX_EMAIL_BYTES // (1024 * 1024)} MiB"
+		if MAX_EMAIL_BYTES % (1024 * 1024) == 0
+		else f"{MAX_EMAIL_BYTES} bytes"
+	)
+
 	content_length = request.headers.get("content-length")
 	if content_length:
 		try:
-			if int(content_length) > MAX_EMAIL_BYTES:
-				raise HTTPException(status_code=413, detail="Email payload exceeds 25 MiB")
+			content_length_val = int(content_length)
+			if content_length_val > MAX_EMAIL_BYTES:
+				raise HTTPException(status_code=413, detail=f"Email payload exceeds {max_size_label}")
+			if content_length_val < 0:
+				raise HTTPException(status_code=400, detail="Invalid Content-Length header")
 		except ValueError as error:
 			logger.warning("Rejected email with invalid Content-Length header")
 			raise HTTPException(status_code=400, detail="Invalid Content-Length header") from error
 
-	raw_message = await request.body()
+	chunks: list[bytes] = []
+	total_bytes = 0
+	async for chunk in request.stream():
+		total_bytes += len(chunk)
+		if total_bytes > MAX_EMAIL_BYTES:
+			raise HTTPException(status_code=413, detail=f"Email payload exceeds {max_size_label}")
+		chunks.append(chunk)
+
+	raw_message = b"".join(chunks)
+	request._body = raw_message
 	if not raw_message:
 		raise HTTPException(status_code=400, detail="Email payload is empty")
-	if len(raw_message) > MAX_EMAIL_BYTES:
-		raise HTTPException(status_code=413, detail="Email payload exceeds 25 MiB")
 
 	try:
 		parsed = parse_mime(raw_message)
@@ -397,8 +417,13 @@ async def inbound_email(
 			"region": geo.region if geo else None,
 			"city": geo.city if geo else None,
 			"asn": geo.asn if geo else None,
+			"network_owner": geo.network_owner if geo else None,
 			"is_vpn_proxy": geo.is_vpn_proxy if geo else None,
 			"confidence": geo.confidence if geo else 0.0,
+			"ip_status": "available" if parsed.source_ip else "unavailable",
+			"origin_type": geo.origin_type if geo else "unknown_origin",
+			"location_is_infrastructure": geo.location_is_infrastructure if geo else False,
+			"location_note": location_note(geo, parsed.source_ip),
 			**private_relay,
 		}
 		report = report_generator.build_email_report(report_payload, report_id)

@@ -15,6 +15,12 @@ node_modules/
 *.json
 !backend/models/*.json
 !backend/rules/*.json
+!frontend/package.json
+!frontend/package-lock.json
+!frontend/college/package.json
+!frontend/college/tsconfig.json
+!frontend/central/package.json
+!frontend/central/tsconfig.json
 
 # Local logs and temporary files
 *.log
