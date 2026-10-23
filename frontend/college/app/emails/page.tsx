@@ -1,43 +1,95 @@
+import Link from 'next/link';
 import { AppShell } from '../../components/AppShell';
 import { fetchCollegeReports } from '../../lib/api';
+
+function riskBadgeClass(severity: string) {
+  const s = severity.toLowerCase();
+  switch (s) {
+    case 'critical': return 'badge badge-critical';
+    case 'high': return 'badge badge-high';
+    case 'medium': return 'badge badge-medium';
+    case 'review': return 'badge badge-review';
+    default: return 'badge badge-neutral';
+  }
+}
+
+function formatDate(value?: string) {
+  if (!value) return 'Time unavailable';
+  const d = new Date(value);
+  return Number.isNaN(d.getTime()) ? value : d.toLocaleString(undefined, {
+    month: 'short',
+    day: 'numeric',
+    hour: '2-digit',
+    minute: '2-digit'
+  });
+}
 
 export default async function CollegeEmailsPage() {
   const reports = await fetchCollegeReports();
 
   return (
-    <AppShell
-      title="Organization Security Portal"
-      subtitle="Organization security"
-      navItems={[
-        { label: 'Dashboard', href: '/' },
-        { label: 'Emails', href: '/emails' },
-        { label: 'Threats', href: '/threats' },
-        { label: 'Investigations', href: '/investigations' },
-        { label: 'Reports', href: '/reports' },
-        { label: 'Settings', href: '/settings' }
-      ]}
-    >
+    <AppShell title="Email Queue" subtitle="Captured messages & scan logs">
       <section className="data-section">
-        <div className="section-heading"><div><h2>Email security queue</h2><div className="muted">Messages captured and analyzed by the live Mail Nexus ingestion pipeline.</div></div></div>
+        <div className="section-header">
+          <div className="section-title-wrap">
+            <h2 className="section-title">Analyzed email reports ({reports.length})</h2>
+            <span className="section-desc">Persisted email records returned by the Mail Nexus analysis API.</span>
+          </div>
+        </div>
+
         {reports.length === 0 ? (
-          <div style={{ color: '#5a6f8a', padding: '24px 0 8px' }}>No email security events are currently available.</div>
+          <div className="empty-state">No emails analyzed yet.</div>
         ) : (
-          <table className="data-table">
-            <thead>
-              <tr>
-                <th>Sender</th><th>Subject</th><th>Tenant</th><th>Risk</th><th>Status</th>
-              </tr>
-            </thead>
-            <tbody>
-              {reports.map((report) => {
-                return (
-                <tr key={report.report_id}>
-                  <td>Message available in report</td><td>{report.title}</td><td>Organization</td><td><span className={`badge badge-${report.severity.toLowerCase()}`}>{report.severity}</span></td><td>ANALYZED</td>
+          <div className="data-table-wrap">
+            <table className="data-table">
+              <thead>
+                <tr>
+                  <th style={{ width: '130px' }}>Timestamp</th>
+                  <th style={{ width: '140px' }}>Report ID</th>
+                  <th>Message Subject / Finding</th>
+                  <th style={{ width: '90px' }}>Risk</th>
+                  <th style={{ width: '90px' }}>Status</th>
+                  <th style={{ width: '80px', textAlign: 'right' }}>Action</th>
                 </tr>
-                );
-              })}
-            </tbody>
-          </table>
+              </thead>
+              <tbody>
+                {reports.map((report) => (
+                  <tr key={report.report_id}>
+                    <td style={{ fontFamily: 'var(--font-mono)', fontSize: '11px', color: 'var(--text-muted)' }}>
+                      {formatDate(report.created_at)}
+                    </td>
+                    <td style={{ fontFamily: 'var(--font-mono)', fontSize: '11px', color: 'var(--accent)' }}>
+                      {report.report_id}
+                    </td>
+                    <td>
+                      <Link
+                        href={`/reports/${encodeURIComponent(report.report_id)}`}
+                        className="table-subject-link"
+                      >
+                        {report.title || 'Untitled report'}
+                      </Link>
+                    </td>
+                    <td>
+                      <span className={riskBadgeClass(report.severity)}>
+                        {report.severity}
+                      </span>
+                    </td>
+                    <td>
+                      <span className="badge badge-neutral">ANALYZED</span>
+                    </td>
+                    <td style={{ textAlign: 'right' }}>
+                      <Link
+                        href={`/reports/${encodeURIComponent(report.report_id)}`}
+                        className="btn btn-secondary btn-sm"
+                      >
+                        Inspect
+                      </Link>
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
         )}
       </section>
     </AppShell>

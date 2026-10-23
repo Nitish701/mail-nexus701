@@ -3,9 +3,9 @@ uvicorn[standard]
 httpx
 joblib
 xgboost
-scikit-learn
+scikit-learn==1.7.2
 redis
 yara-python
-py-tlsh
+py-tlsh; sys_platform != "win32"
 groq
 sqlalchemy

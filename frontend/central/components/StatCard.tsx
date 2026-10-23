@@ -6,14 +6,14 @@ export function StatCard({
 }: {
   label: string;
   value: string | number;
-  tone?: 'default' | 'critical' | 'high' | 'ok';
+  tone?: 'default' | 'critical' | 'high' | 'ok' | 'review' | 'medium';
   hint?: string;
 }) {
   return (
     <div className={`stat-card tone-${tone}`}>
-      <div className="stat-card-label">{label}</div>
+      <span className="stat-card-label">{label}</span>
       <div className="stat-card-value">{value}</div>
-      {hint ? <div className="stat-card-hint">{hint}</div> : null}
+      {hint ? <span className="stat-card-detail">{hint}</span> : null}
     </div>
   );
 }

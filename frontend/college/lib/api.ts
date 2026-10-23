@@ -181,76 +181,50 @@ function normalizeCorrelationCampaign(value: unknown): CorrelationCampaign | nul
 }
 
 export async function fetchCollegeDashboardSummary(): Promise<CollegeDashboardSummary | null> {
-  try {
-    const organization = (await organizationQuery()).replace(/^&/, '');
-    const response = await fetch(`${baseUrl}/api/reports/dashboard${organization ? `?${organization}` : ''}`, { cache: 'no-store' });
-    if (!response.ok) return null;
-    return await response.json() as CollegeDashboardSummary;
-  } catch {
-    return null;
-  }
+  const organization = (await organizationQuery()).replace(/^&/, '');
+  const response = await fetch(`${baseUrl}/api/reports/dashboard${organization ? `?${organization}` : ''}`, { cache: 'no-store' });
+  if (!response.ok) throw new Error(`Dashboard request failed (${response.status})`);
+  return await response.json() as CollegeDashboardSummary;
 }
 
 export async function fetchCollegeReportDetails(reportId: string): Promise<Record<string, unknown> | null> {
-  try {
-    const organization = await organizationQuery();
-    const response = await fetch(`${baseUrl}/api/reports/${encodeURIComponent(reportId)}${organization ? `?organization_id=${organization.split('=').pop()}` : ''}`, { cache: 'no-store' });
-    return response.ok ? await response.json() : null;
-  } catch {
-    return null;
-  }
+  const organization = await organizationQuery();
+  const response = await fetch(`${baseUrl}/api/reports/${encodeURIComponent(reportId)}${organization ? `?organization_id=${organization.split('=').pop()}` : ''}`, { cache: 'no-store' });
+  if (response.status === 404) return null;
+  if (!response.ok) throw new Error(`Report details request failed (${response.status})`);
+  return await response.json() as Record<string, unknown>;
 }
 
 export async function fetchCollegeReports(): Promise<EmailReport[]> {
-  try {
-    const response = await fetch(`${baseUrl}/api/reports?report_type=email${await organizationQuery()}`, { cache: 'no-store' });
-    if (!response.ok) {
-      return [];
-    }
-    const payload = await response.json();
-    return Array.isArray(payload.reports) ? payload.reports : [];
-  } catch {
-    return [];
-  }
+  const response = await fetch(`${baseUrl}/api/reports?report_type=email${await organizationQuery()}`, { cache: 'no-store' });
+  if (!response.ok) throw new Error(`Email reports request failed (${response.status})`);
+  const payload = await response.json();
+  if (!Array.isArray(payload.reports)) throw new Error('Email reports response was invalid');
+  return payload.reports;
 }
 
 export async function fetchCollegeCampaigns(): Promise<CorrelationCampaign[]> {
-  try {
-    const organization = await organizationQuery();
-    const response = await fetch(`${baseUrl}/api/developer2/campaigns${organization ? `?${organization.slice(1)}` : ''}`, { cache: 'no-store' });
-    if (!response.ok) return [];
-    const payload: unknown = await response.json();
-    return Array.isArray(payload)
-      ? payload.flatMap((campaign) => {
-        const normalized = normalizeCorrelationCampaign(campaign);
-        return normalized ? [normalized] : [];
-      })
-      : [];
-  } catch {
-    return [];
-  }
+  const organization = await organizationQuery();
+  const response = await fetch(`${baseUrl}/api/developer2/campaigns${organization ? `?${organization.slice(1)}` : ''}`, { cache: 'no-store' });
+  if (!response.ok) throw new Error(`Campaigns request failed (${response.status})`);
+  const payload: unknown = await response.json();
+  if (!Array.isArray(payload)) throw new Error('Campaigns response was invalid');
+  return payload.flatMap((campaign) => {
+    const normalized = normalizeCorrelationCampaign(campaign);
+    return normalized ? [normalized] : [];
+  });
 }
 
 export async function fetchCollegeOverview() {
-
-  const [healthResult, reportsResult] = await Promise.allSettled([
+  const [healthResponse, reports] = await Promise.all([
     fetch(`${baseUrl}/health`, { cache: 'no-store' }),
     fetchCollegeReports()
   ]);
-
-  let health = { status: 'offline' };
-  const reports = reportsResult.status === 'fulfilled' ? reportsResult.value : [];
-
-  if (healthResult.status === 'fulfilled' && healthResult.value.ok) {
-    try {
-      health = await healthResult.value.json();
-    } catch {
-      health = { status: 'offline' };
-    }
-  }
+  if (!healthResponse.ok) throw new Error(`Health request failed (${healthResponse.status})`);
+  const health = await healthResponse.json() as { status?: string };
 
   return {
-    apiStatus: health.status || 'offline',
+    apiStatus: health.status || 'unknown',
     reportCount: reports.length,
     environment: 'college',
     baseUrl

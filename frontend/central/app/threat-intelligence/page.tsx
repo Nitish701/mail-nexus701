@@ -1,7 +1,9 @@
 'use client';
 
 import { useEffect, useState, useMemo } from 'react';
+import Link from 'next/link';
 import { AppShell } from '../../components/AppShell';
+import { RequestError } from '../../components/RequestError';
 import { fetchCentralReports, fetchCentralReportDetails } from '../../lib/api';
 import { CENTRAL_NAV } from '../../lib/nav';
 
@@ -14,15 +16,30 @@ type Indicator = {
   threatType?: string;
 };
 
+function riskBadgeClass(severity: string) {
+  const s = severity.toLowerCase();
+  switch (s) {
+    case 'critical': return 'badge badge-critical';
+    case 'high': return 'badge badge-high';
+    case 'medium': return 'badge badge-medium';
+    case 'review': return 'badge badge-review';
+    default: return 'badge badge-neutral';
+  }
+}
+
 export default function ThreatIntelligencePage() {
   const [indicators, setIndicators] = useState<Indicator[]>([]);
   const [loading, setLoading] = useState(true);
   const [searchQuery, setSearchQuery] = useState('');
   const [activeTab, setActiveTab] = useState<'all' | 'URL' | 'Domain' | 'IP' | 'Hash'>('all');
   const [copiedId, setCopiedId] = useState<string | null>(null);
+  const [requestError, setRequestError] = useState('');
+  const [reloadKey, setReloadKey] = useState(0);
 
   useEffect(() => {
     let cancelled = false;
+    setLoading(true);
+    setRequestError('');
     (async () => {
       try {
         const { reports } = await fetchCentralReports();
@@ -54,7 +71,7 @@ export default function ThreatIntelligencePage() {
                   value: url,
                   reportId,
                   severity,
-                  threatType: 'Phishing Landing Page'
+                  threatType: 'Phishing Landing Target'
                 });
                 try {
                   const parsed = new URL(url.startsWith('http') ? url : `http://${url}`);
@@ -65,11 +82,11 @@ export default function ThreatIntelligencePage() {
                       value: parsed.hostname,
                       reportId,
                       severity,
-                      threatType: 'Suspect Sender/Target Domain'
+                      threatType: 'Suspect Sender/Relay Domain'
                     });
                   }
                 } catch {
-                  // Ignore invalid URL parsing
+                  // Ignore invalid URL
                 }
               }
             });
@@ -88,60 +105,34 @@ export default function ThreatIntelligencePage() {
                   value: val,
                   reportId,
                   severity,
-                  threatType: isIp ? 'C2 / Malicious Infrastructure' : isHash ? 'Malware Payload Signature' : 'Behavioral Pattern'
+                  threatType: isIp ? 'Malicious C2 Host' : isHash ? 'Payload Hash' : 'Pattern Signature'
                 });
               }
             });
           }
 
-          // Extract Geolocation IP if present
+          // Extract Geolocation IP
           const geo = detail.geolocation as Record<string, unknown> | undefined;
           if (geo?.source_ip) {
             extracted.push({
-              id: `ip-${reportId}-${String(geo.source_ip)}`,
+              id: `ip-${reportId}`,
               type: 'IP',
               value: String(geo.source_ip),
               reportId,
               severity,
-              threatType: `${geo.country || 'External'} Infrastructure (ASN ${geo.asn || 'N/A'})`
-            });
-          }
-
-          // Extract Fingerprints
-          const fp = detail.fingerprint as Record<string, unknown> | undefined;
-          if (fp?.body_sha256) {
-            extracted.push({
-              id: `hash-sha-${reportId}`,
-              type: 'Hash',
-              value: String(fp.body_sha256),
-              reportId,
-              severity,
-              threatType: 'Email Body SHA-256 Hash'
-            });
-          }
-          if (fp?.tlsh) {
-            extracted.push({
-              id: `hash-tlsh-${reportId}`,
-              type: 'Hash',
-              value: String(fp.tlsh),
-              reportId,
-              severity,
-              threatType: 'Fuzzy Locality-Sensitive Hash (TLSH)'
+              threatType: `Inbound Sender IP (${geo.country_name || 'Global'})`
             });
           }
         });
 
-        // Deduplicate indicators by value
-        const seen = new Set<string>();
-        const unique = extracted.filter((item) => {
-          if (seen.has(item.value)) return false;
-          seen.add(item.value);
-          return true;
-        });
-
+        // Deduplicate by value
+        const unique = Array.from(new Map(extracted.map((item) => [item.value, item])).values());
         setIndicators(unique);
-      } catch {
-        // Fallback gracefully
+      } catch (error) {
+        if (!cancelled) {
+          setIndicators([]);
+          setRequestError(error instanceof Error ? error.message : 'Unable to load threat intelligence.');
+        }
       } finally {
         if (!cancelled) setLoading(false);
       }
@@ -150,260 +141,195 @@ export default function ThreatIntelligencePage() {
     return () => {
       cancelled = true;
     };
-  }, []);
-
-  const stats = useMemo(() => {
-    const urls = indicators.filter((i) => i.type === 'URL').length;
-    const domains = indicators.filter((i) => i.type === 'Domain').length;
-    const ips = indicators.filter((i) => i.type === 'IP').length;
-    const hashes = indicators.filter((i) => i.type === 'Hash').length;
-    return { total: indicators.length, urls, domains, ips, hashes };
-  }, [indicators]);
+  }, [reloadKey]);
 
   const filteredIndicators = useMemo(() => {
-    return indicators.filter((item) => {
-      if (activeTab !== 'all' && item.type !== activeTab) {
+    return indicators.filter((ind) => {
+      if (activeTab !== 'all' && ind.type !== activeTab) {
         return false;
       }
       if (!searchQuery.trim()) return true;
       const q = searchQuery.toLowerCase();
       return (
-        item.value.toLowerCase().includes(q) ||
-        item.reportId.toLowerCase().includes(q) ||
-        (item.threatType && item.threatType.toLowerCase().includes(q))
+        ind.value.toLowerCase().includes(q) ||
+        ind.threatType?.toLowerCase().includes(q) ||
+        ind.reportId.toLowerCase().includes(q)
       );
     });
   }, [indicators, activeTab, searchQuery]);
 
-  const handleCopy = (id: string, text: string) => {
+  const copyToClipboard = (text: string, id: string) => {
     navigator.clipboard.writeText(text);
     setCopiedId(id);
-    setTimeout(() => {
-      setCopiedId((curr) => (curr === id ? null : curr));
-    }, 2000);
+    setTimeout(() => setCopiedId(null), 1500);
   };
 
-  const handleExportJson = () => {
-    if (!filteredIndicators.length) return;
-    const dataStr = 'data:text/json;charset=utf-8,' + encodeURIComponent(JSON.stringify(filteredIndicators, null, 2));
-    const link = document.createElement('a');
-    link.setAttribute('href', dataStr);
-    link.setAttribute('download', `threat-iocs-stix-${Date.now()}.json`);
-    document.body.appendChild(link);
-    link.click();
-    document.body.removeChild(link);
-  };
+  const counts = useMemo(() => {
+    const urls = indicators.filter((i) => i.type === 'URL').length;
+    const domains = indicators.filter((i) => i.type === 'Domain').length;
+    const ips = indicators.filter((i) => i.type === 'IP').length;
+    const hashes = indicators.filter((i) => i.type === 'Hash').length;
+    return { all: indicators.length, urls, domains, ips, hashes };
+  }, [indicators]);
 
   return (
     <AppShell
-      title="Federated Threat Intelligence Hub"
-      subtitle="Autonomous cross-tenant IOC aggregation, domain reputation & forensic fingerprints"
+      title="Threat Intelligence"
+      subtitle="Federated Indicators of Compromise (IOCs)"
       navItems={[...CENTRAL_NAV]}
     >
-      <div className="soc-subpage">
-        {/* KPI Strip */}
-        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(180px, 1fr))', gap: 14 }}>
-          <div className="soc-card" style={{ padding: '16px 20px', borderTop: '2px solid #5599ff' }}>
-            <span style={{ color: '#8fa2bd', fontSize: 11, fontWeight: 700, textTransform: 'uppercase', letterSpacing: 0.8 }}>
-              Total Unique IOCs
-            </span>
-            <div style={{ color: '#f1f5fb', fontSize: 26, fontWeight: 800, marginTop: 4, fontFamily: '"JetBrains Mono", monospace' }}>
-              {stats.total}
-            </div>
-            <small style={{ color: '#687e9c', fontSize: 11 }}>Active threat markers</small>
-          </div>
+      <header className="page-intro">
+        <div>
+          <h1>Threat intelligence</h1>
+          <p>Indicators extracted from persisted suspicious email reports.</p>
+        </div>
+      </header>
+      {requestError && (
+        <RequestError
+          message={`Unable to load threat indicators: ${requestError}`}
+          onRetry={() => setReloadKey((key) => key + 1)}
+        />
+      )}
+      {/* Metric Cards */}
+      <section className="stat-grid">
+        <div className="stat-card">
+          <span className="stat-card-label">Total Unique IOCs</span>
+          <div className="stat-card-value">{counts.all}</div>
+          <span className="stat-card-detail">Extracted indicators</span>
+        </div>
+        <div className="stat-card">
+          <span className="stat-card-label">Malicious URLs</span>
+          <div className="stat-card-value">{counts.urls}</div>
+          <span className="stat-card-detail">Phishing links</span>
+        </div>
+        <div className="stat-card">
+          <span className="stat-card-label">Sender Domains</span>
+          <div className="stat-card-value">{counts.domains}</div>
+          <span className="stat-card-detail">Host infrastructure</span>
+        </div>
+        <div className="stat-card">
+          <span className="stat-card-label">Connecting IPs</span>
+          <div className="stat-card-value">{counts.ips}</div>
+          <span className="stat-card-detail">Source IP addresses</span>
+        </div>
+      </section>
 
-          <div className="soc-card" style={{ padding: '16px 20px', borderTop: '2px solid #ef665f' }}>
-            <span style={{ color: '#ff857f', fontSize: 11, fontWeight: 700, textTransform: 'uppercase', letterSpacing: 0.8 }}>
-              Malicious URLs
-            </span>
-            <div style={{ color: '#ff766e', fontSize: 26, fontWeight: 800, marginTop: 4, fontFamily: '"JetBrains Mono", monospace' }}>
-              {stats.urls}
-            </div>
-            <small style={{ color: '#687e9c', fontSize: 11 }}>Credential harvester links</small>
-          </div>
-
-          <div className="soc-card" style={{ padding: '16px 20px', borderTop: '2px solid #ffaa55' }}>
-            <span style={{ color: '#ffb977', fontSize: 11, fontWeight: 700, textTransform: 'uppercase', letterSpacing: 0.8 }}>
-              Suspect Domains
-            </span>
-            <div style={{ color: '#ffaa55', fontSize: 26, fontWeight: 800, marginTop: 4, fontFamily: '"JetBrains Mono", monospace' }}>
-              {stats.domains}
-            </div>
-            <small style={{ color: '#687e9c', fontSize: 11 }}>Lookalike / Spoofed senders</small>
-          </div>
-
-          <div className="soc-card" style={{ padding: '16px 20px', borderTop: '2px solid #38bdf8' }}>
-            <span style={{ color: '#85d9ff', fontSize: 11, fontWeight: 700, textTransform: 'uppercase', letterSpacing: 0.8 }}>
-              Malicious IPs
-            </span>
-            <div style={{ color: '#38bdf8', fontSize: 26, fontWeight: 800, marginTop: 4, fontFamily: '"JetBrains Mono", monospace' }}>
-              {stats.ips}
-            </div>
-            <small style={{ color: '#687e9c', fontSize: 11 }}>Host / VPN / Proxy nodes</small>
-          </div>
-
-          <div className="soc-card" style={{ padding: '16px 20px', borderTop: '2px solid #a855f7' }}>
-            <span style={{ color: '#d8b4fe', fontSize: 11, fontWeight: 700, textTransform: 'uppercase', letterSpacing: 0.8 }}>
-              Forensic Hashes
-            </span>
-            <div style={{ color: '#c084fc', fontSize: 26, fontWeight: 800, marginTop: 4, fontFamily: '"JetBrains Mono", monospace' }}>
-              {stats.hashes}
-            </div>
-            <small style={{ color: '#687e9c', fontSize: 11 }}>SHA-256 & TLSH signatures</small>
-          </div>
+      {/* Filter and Search Bar */}
+      <div className="feed-controls">
+        <div className="tabs-header" style={{ border: 'none', padding: 0 }}>
+          <button
+            type="button"
+            className={`tab-btn ${activeTab === 'all' ? 'is-active' : ''}`}
+            onClick={() => setActiveTab('all')}
+          >
+            All Indicators ({counts.all})
+          </button>
+          <button
+            type="button"
+            className={`tab-btn ${activeTab === 'URL' ? 'is-active' : ''}`}
+            onClick={() => setActiveTab('URL')}
+          >
+            URLs ({counts.urls})
+          </button>
+          <button
+            type="button"
+            className={`tab-btn ${activeTab === 'Domain' ? 'is-active' : ''}`}
+            onClick={() => setActiveTab('Domain')}
+          >
+            Domains ({counts.domains})
+          </button>
+          <button
+            type="button"
+            className={`tab-btn ${activeTab === 'IP' ? 'is-active' : ''}`}
+            onClick={() => setActiveTab('IP')}
+          >
+            IP Addresses ({counts.ips})
+          </button>
+          <button
+            type="button"
+            className={`tab-btn ${activeTab === 'Hash' ? 'is-active' : ''}`}
+            onClick={() => setActiveTab('Hash')}
+          >
+            Hashes ({counts.hashes})
+          </button>
         </div>
 
-        {/* Filter and Search Bar */}
-        <div className="soc-filter-bar">
-          <div className="soc-search-wrapper">
-            <span className="soc-search-icon">
-              <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2">
-                <circle cx="11" cy="11" r="8" />
-                <path d="m21 21-4.3-4.3" />
-              </svg>
-            </span>
-            <input
-              type="text"
-              className="soc-search-input"
-              placeholder="Search IOCs by URL, domain, IP, or hash pattern..."
-              value={searchQuery}
-              onChange={(e) => setSearchQuery(e.target.value)}
-            />
-          </div>
-
-          <div style={{ display: 'flex', alignItems: 'center', gap: 12, flexWrap: 'wrap' }}>
-            <div className="soc-pill-group">
-              {[
-                { id: 'all', label: 'All Indicators' },
-                { id: 'URL', label: 'URLs' },
-                { id: 'Domain', label: 'Domains' },
-                { id: 'IP', label: 'IPs' },
-                { id: 'Hash', label: 'Hashes' }
-              ].map((tab) => (
-                <button
-                  key={tab.id}
-                  type="button"
-                  className={`soc-pill-btn ${activeTab === tab.id ? 'active' : ''}`}
-                  onClick={() => setActiveTab(tab.id as typeof activeTab)}
-                >
-                  {tab.label}
-                </button>
-              ))}
-            </div>
-
-            <button
-              type="button"
-              className="soc-copy-btn"
-              onClick={handleExportJson}
-              style={{ padding: '8px 14px' }}
-              title="Export all indicators as JSON"
-            >
-              <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-                <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4" />
-                <polyline points="7 10 12 15 17 10" />
-                <line x1="12" y1="15" x2="12" y2="3" />
-              </svg>
-              Export STIX/JSON
-            </button>
-          </div>
-        </div>
-
-        {/* Indicators Table Card */}
-        <div className="soc-card">
-          <div className="soc-card-header">
-            <div>
-              <h2>Extracted Threat Indicators</h2>
-              <p>Showing {filteredIndicators.length} matching indicators</p>
-            </div>
-            <span className="soc-badge info">Federated Ingestion</span>
-          </div>
-
-          <div className="soc-card-body" style={{ padding: 0 }}>
-            {loading ? (
-              <div style={{ padding: '48px 24px', textAlign: 'center', color: '#8aa0be' }}>
-                Extracting federated threat indicators…
-              </div>
-            ) : filteredIndicators.length === 0 ? (
-              <div style={{ padding: '60px 24px', textAlign: 'center', color: '#8fa2bd' }}>
-                <div style={{ fontSize: 24, marginBottom: 8 }}>🔍</div>
-                <strong style={{ display: 'block', color: '#e5f0ff', marginBottom: 6 }}>No indicators found</strong>
-                {indicators.length === 0
-                  ? 'No IOCs have been shared from suspicious emails yet.'
-                  : 'Try adjusting your search criteria or category filter.'}
-              </div>
-            ) : (
-              <div className="soc-table-wrapper" style={{ border: 'none', borderRadius: 0 }}>
-                <table className="soc-table">
-                  <thead>
-                    <tr>
-                      <th style={{ width: 110 }}>Type</th>
-                      <th>Indicator / Threat Signature</th>
-                      <th>Classification</th>
-                      <th>Source Report</th>
-                      <th style={{ textAlign: 'right', width: 130 }}>Action</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {filteredIndicators.map((item) => {
-                      const isCopied = copiedId === item.id;
-                      const sev = item.severity.toLowerCase();
-                      return (
-                        <tr key={item.id}>
-                          <td>
-                            <span className={`soc-badge ${sev === 'critical' ? 'critical' : sev === 'high' ? 'high' : 'info'}`}>
-                              {item.type}
-                            </span>
-                          </td>
-                          <td>
-                            <div style={{ fontFamily: '"JetBrains Mono", monospace', fontSize: 13, color: '#f1f5fb', wordBreak: 'break-all', maxWidth: 440 }}>
-                              {item.value}
-                            </div>
-                          </td>
-                          <td>
-                            <span style={{ color: '#8fa2bd', fontSize: 12 }}>
-                              {item.threatType || 'Observed Threat Vector'}
-                            </span>
-                          </td>
-                          <td>
-                            <span style={{ fontFamily: '"JetBrains Mono", monospace', color: '#8ec5ff', fontSize: 12 }}>
-                              {item.reportId.slice(0, 16)}
-                            </span>
-                          </td>
-                          <td style={{ textAlign: 'right' }}>
-                            <button
-                              type="button"
-                              className={`soc-copy-btn ${isCopied ? 'copied' : ''}`}
-                              onClick={() => handleCopy(item.id, item.value)}
-                            >
-                              {isCopied ? (
-                                <>
-                                  <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5">
-                                    <polyline points="20 6 9 17 4 12" />
-                                  </svg>
-                                  Copied
-                                </>
-                              ) : (
-                                <>
-                                  <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-                                    <rect x="9" y="9" width="13" height="13" rx="2" ry="2" />
-                                    <path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1" />
-                                  </svg>
-                                  Copy IOC
-                                </>
-                              )}
-                            </button>
-                          </td>
-                        </tr>
-                      );
-                    })}
-                  </tbody>
-                </table>
-              </div>
-            )}
-          </div>
-        </div>
+        <input
+          type="text"
+          className="topbar-search-input"
+          style={{ width: '220px' }}
+          placeholder="Filter IOC value or type..."
+          value={searchQuery}
+          onChange={(e) => setSearchQuery(e.target.value)}
+        />
       </div>
+
+      {/* IOC Table */}
+      <section className="data-section">
+        <div className="section-header">
+          <div className="section-title-wrap">
+            <h2 className="section-title">Federated IOC Repository ({filteredIndicators.length})</h2>
+            <span className="section-desc">Extracted from inbound email scans and correlated across institutions.</span>
+          </div>
+        </div>
+
+        {loading ? (
+          <div className="empty-state">Extracting threat indicators and hashes...</div>
+        ) : requestError ? null : filteredIndicators.length === 0 ? (
+          <div className="empty-state">No threat indicators found matching current filters.</div>
+        ) : (
+          <div className="data-table-wrap">
+            <table className="data-table">
+              <thead>
+                <tr>
+                  <th style={{ width: '90px' }}>Type</th>
+                  <th>Indicator Value</th>
+                  <th style={{ width: '180px' }}>Classification</th>
+                  <th style={{ width: '130px' }}>Source Report</th>
+                  <th style={{ width: '90px' }}>Severity</th>
+                  <th style={{ width: '90px', textAlign: 'right' }}>Action</th>
+                </tr>
+              </thead>
+              <tbody>
+                {filteredIndicators.map((ind) => (
+                  <tr key={ind.id}>
+                    <td>
+                      <span className="badge badge-neutral" style={{ fontSize: '9px' }}>
+                        {ind.type}
+                      </span>
+                    </td>
+                    <td style={{ fontFamily: 'var(--font-mono)', fontSize: '11px', color: 'var(--text-primary)', wordBreak: 'break-all' }}>
+                      {ind.value}
+                    </td>
+                    <td style={{ fontSize: '11px', color: 'var(--text-muted)' }}>
+                      {ind.threatType}
+                    </td>
+                    <td style={{ fontFamily: 'var(--font-mono)', fontSize: '11px', color: 'var(--accent)' }}>
+                      <Link href={`/reports/${encodeURIComponent(ind.reportId)}`} className="table-subject-link">
+                        {ind.reportId}
+                      </Link>
+                    </td>
+                    <td>
+                      <span className={riskBadgeClass(ind.severity)}>
+                        {ind.severity}
+                      </span>
+                    </td>
+                    <td style={{ textAlign: 'right' }}>
+                      <button
+                        type="button"
+                        className="btn btn-secondary btn-sm"
+                        onClick={() => copyToClipboard(ind.value, ind.id)}
+                      >
+                        {copiedId === ind.id ? 'Copied!' : 'Copy'}
+                      </button>
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        )}
+      </section>
     </AppShell>
   );
 }

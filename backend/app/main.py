@@ -46,11 +46,7 @@ from app.schemas import Attachment, AuthenticationCheck, InboundEmailResponse, L
 
 app = FastAPI(title="Mail-Nexus API", version="0.1.0")
 logger = logging.getLogger("mail_nexus.ingestion")
-<<<<<<< HEAD
-MAX_EMAIL_BYTES = 25 * 1024 * 1024
 _AI_EXPLANATION_LOCK = threading.Lock()
-=======
->>>>>>> b7b7db0 (Update project features)
 body_text_model = BodyTextModel(MODEL_PATH)
 Base.metadata.create_all(bind=engine)
 report_store.ReportBase.metadata.create_all(bind=engine)

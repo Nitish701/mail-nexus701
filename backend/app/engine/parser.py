@@ -69,73 +69,42 @@ def _extract_urls(text: str) -> list[str]:
 def _extract_source_ips(headers: dict[str, list[str]]) -> tuple[str | None, list[str]]:
 	private_ips: list[str] = []
 
-    # 1. Validate the topmost Received header against trusted mail servers.
-    received_headers = headers.get("received", [])
-    if not received_headers or not TRUSTED_RECEIVED_HOSTS:
-        return None, private_ips
+	# 1. Validate the topmost Received header against trusted mail servers.
+	received_headers = headers.get("received", [])
+	if not received_headers or not TRUSTED_RECEIVED_HOSTS:
+		return None, private_ips
 
-    # The receiving MTA prepends its Received field. Do not trust older,
-    # sender-supplied headers if the topmost hop is not a trust anchor.
-    received = received_headers[0]
-    by_match = re.search(r"\bby\s+([A-Za-z0-9.-]+)", received, re.IGNORECASE)
+	# The receiving MTA prepends its Received field. Do not trust older,
+	# sender-supplied headers if the topmost hop is not a trust anchor.
+	received = received_headers[0]
+	by_match = re.search(r"\bby\s+([A-Za-z0-9.-]+)", received, re.IGNORECASE)
 
-    if not by_match or by_match.group(1).lower().rstrip(".") not in TRUSTED_RECEIVED_HOSTS:
-        return None, private_ips
+	if not by_match or by_match.group(1).lower().rstrip(".") not in TRUSTED_RECEIVED_HOSTS:
+		return None, private_ips
 
-    # 2. Extract the connecting IP from the trusted topmost Received header.
-    from_match = re.search(r"\bfrom\b(.*?)\bby\b", received, re.IGNORECASE)
-    if not from_match:
-        return None, private_ips
+	# 2. Extract the connecting IP from the trusted topmost Received header.
+	from_match = re.search(r"\bfrom\b(.*?)\bby\b", received, re.IGNORECASE)
+	if not from_match:
+		return None, private_ips
 
-    candidates = re.findall(
-        r"\[((?:IPv6:)?[0-9a-fA-F:.]+)\]",
-        from_match.group(1),
-        re.IGNORECASE,
-    )
+	candidates = re.findall(
+		r"\[((?:IPv6:)?[0-9a-fA-F:.]+)\]",
+		from_match.group(1),
+		re.IGNORECASE,
+	)
 
-    for candidate in candidates:
-        candidate = re.sub(r"^IPv6:", "", candidate, flags=re.IGNORECASE)
-        try:
-            address = ipaddress.ip_address(candidate)
-        except ValueError:
-            continue
+	for candidate in candidates:
+		candidate = re.sub(r"^IPv6:", "", candidate, flags=re.IGNORECASE)
+		try:
+			address = ipaddress.ip_address(candidate)
+		except ValueError:
+			continue
 
-        if address.is_global:
-            return str(address), private_ips
+		if address.is_global:
+			return str(address), private_ips
 
-        if address.is_private and str(address) not in private_ips:
-            private_ips.append(str(address))
-
-    # 3. Fall back to proxy headers only if the trusted Received header
-    # did not yield a usable public IP.
-    proxy_headers = (
-        "cf-connecting-ip",
-        "true-client-ip",
-        "x-real-ip",
-        "x-client-ip",
-        "x-forwarded-for",
-        "x-originating-ip",
-        "x-sender-ip",
-    )
-
-    for header_name in proxy_headers:
-        for value in headers.get(header_name, []):
-            for candidate in value.split(","):
-                candidate = candidate.strip().strip("[]")
-                candidate = re.sub(r"^IPv6:", "", candidate, flags=re.IGNORECASE)
-
-                try:
-                    address = ipaddress.ip_address(candidate)
-                except ValueError:
-                    continue
-
-                if address.is_global:
-                    return str(address), private_ips
-
-                if address.is_private and str(address) not in private_ips:
-                    private_ips.append(str(address))
-
-    return None, private_ips
+		if address.is_private and str(address) not in private_ips:
+			private_ips.append(str(address))
 
 	return None, private_ips
 

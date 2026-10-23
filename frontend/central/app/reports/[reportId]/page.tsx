@@ -3,210 +3,258 @@ import { AppShell } from '../../../components/AppShell';
 import { fetchCentralReportDetails } from '../../../lib/api';
 import { CENTRAL_NAV } from '../../../lib/nav';
 
-function Field({ label, value, isCode }: { label: string; value: unknown; isCode?: boolean }) {
-  return (
-    <div className="report-field">
-      <div className="report-field-label">{label}</div>
-      <div className={`report-field-value ${isCode ? 'report-code-font' : ''}`} style={isCode ? { fontFamily: '"JetBrains Mono", Consolas, monospace', fontSize: 12, wordBreak: 'break-all' } : {}}>
-        {value == null || value === '' ? (
-          <span style={{ color: '#5b7394' }}>Not available / omitted for privacy</span>
-        ) : typeof value === 'object' ? (
-          <pre style={{ margin: 0, padding: 8, background: '#0a101d', borderRadius: 6, fontSize: 11, overflowX: 'auto' }}>
-            {JSON.stringify(value, null, 2)}
-          </pre>
-        ) : (
-          String(value)
-        )}
-      </div>
-    </div>
-  );
+const API_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000';
+
+function riskBadgeClass(severity: string) {
+  const s = severity.toLowerCase();
+  switch (s) {
+    case 'critical': return 'badge badge-critical';
+    case 'high': return 'badge badge-high';
+    case 'medium': return 'badge badge-medium';
+    case 'review': return 'badge badge-review';
+    default: return 'badge badge-review';
+  }
 }
 
-function Section({ title, children }: { title: string; children: React.ReactNode }) {
-  return (
-    <section className="soc-card" style={{ marginBottom: 16 }}>
-      <div className="soc-card-header" style={{ padding: '16px 20px' }}>
-        <h3 style={{ margin: 0, fontSize: 14, textTransform: 'uppercase', letterSpacing: 0.8, color: '#8ec5ff' }}>
-          {title}
-        </h3>
-      </div>
-      <div className="soc-card-body" style={{ padding: '8px 20px 16px' }}>
-        {children}
-      </div>
-    </section>
-  );
-}
-
-function formatValue(value: unknown): string {
+function displayValue(value: unknown): string {
   if (value == null || value === '') return 'Not available';
-  if (Array.isArray(value)) return value.length ? value.map((item) => formatValue(item)).join(', ') : 'None';
+  if (Array.isArray(value)) return value.length ? value.map(displayValue).join(', ') : 'None';
   if (typeof value === 'object') {
-    const record = value as Record<string, unknown>;
-    const entries = Object.entries(record).filter(([, item]) => item != null && item !== '');
-    if (!entries.length) return 'Not available';
-    return entries.map(([key, item]) => `${key}: ${formatValue(item)}`).join(' • ');
+    const entries = Object.entries(value as Record<string, unknown>).filter(
+      ([, item]) => item != null && item !== ''
+    );
+    return entries.length
+      ? entries.map(([key, item]) => `${key}: ${displayValue(item)}`).join(' · ')
+      : 'Not available';
   }
   return String(value);
 }
 
-export default async function CentralReportDetailPage({ params }: { params: Promise<{ reportId: string }> }) {
+export default async function CentralReportDetailPage({
+  params
+}: {
+  params: Promise<{ reportId: string }>;
+}) {
   const { reportId } = await params;
   const report = await fetchCentralReportDetails(reportId);
   const message = report?.message as Record<string, unknown> | undefined;
   const risk = report?.risk as Record<string, unknown> | undefined;
+  const advisory = report?.advisory as Record<string, unknown> | undefined;
   const geo = report?.geolocation as Record<string, unknown> | undefined;
-  const fingerprint = report?.fingerprint as Record<string, unknown> | undefined;
-
-  const sev = String(report?.severity || 'unknown').toLowerCase();
-  const riskScore = Number(risk?.base_score ?? (sev === 'critical' ? 65 : sev === 'high' ? 52 : 30));
-  const maxRisk = 70;
-  const riskPct = Math.min(100, Math.round((riskScore / maxRisk) * 100));
+  const severity = String(risk?.disposition || report?.severity || 'Not provided');
 
   return (
-    <AppShell title="Central Investigation Forensic Report" subtitle="Federated evidence dossier" navItems={[...CENTRAL_NAV]}>
-      <div className="soc-subpage">
-        <Link href="/reports" className="report-back-link" style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}>
+    <AppShell title="Forensic Dossier" subtitle={reportId} navItems={[...CENTRAL_NAV]}>
+      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '4px' }}>
+        <Link href="/reports" className="btn btn-ghost btn-sm" style={{ paddingLeft: 0 }}>
           ← Back to report directory
         </Link>
+        <div style={{ display: 'flex', gap: 6 }}>
+          <a
+            href={`${API_URL}/api/reports/${encodeURIComponent(reportId)}?format=json`}
+            target="_blank"
+            rel="noreferrer"
+            className="btn btn-secondary btn-sm"
+          >
+            JSON
+          </a>
+          <a
+            href={`${API_URL}/api/reports/${encodeURIComponent(reportId)}?format=csv`}
+            target="_blank"
+            rel="noreferrer"
+            className="btn btn-secondary btn-sm"
+          >
+            CSV
+          </a>
+          <a
+            href={`${API_URL}/api/reports/${encodeURIComponent(reportId)}?format=markdown`}
+            target="_blank"
+            rel="noreferrer"
+            className="btn btn-secondary btn-sm"
+          >
+            Markdown
+          </a>
+        </div>
+      </div>
 
-        {report ? (
-          <>
-            <header className="report-hero">
-              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: 10 }}>
-                <div className="report-hero-kicker">MAIL-NEXUS · FEDERATED FORENSIC DOSSIER</div>
-                <span className={`soc-badge ${sev}`}>{sev} severity</span>
+      {!report ? (
+        <section className="data-section">
+          <div className="empty-state">
+            Report &quot;{reportId}&quot; could not be found or access is restricted.
+          </div>
+        </section>
+      ) : (
+        <>
+          {/* Header Metric Strip */}
+          <section className="stat-grid">
+            <div className={`stat-card tone-${severity.toLowerCase()}`}>
+              <span className="stat-card-label">Severity Level</span>
+              <div style={{ marginTop: '4px' }}>
+                <span className={riskBadgeClass(severity)} style={{ fontSize: '12px', padding: '4px 8px' }}>
+                  {severity.toUpperCase()}
+                </span>
               </div>
-              <h2 style={{ fontSize: 24, margin: '8px 0' }}>{String(report.title || reportId)}</h2>
-              <div className="report-hero-meta">
-                Identifier: <span style={{ color: '#8ec5ff' }}>{reportId}</span> · Organization {String(report.organization_id || 'Cross-Tenant')}
-              </div>
-            </header>
+              <span className="stat-card-detail">Threat Classification</span>
+            </div>
 
-            {/* KPI Stat Grid */}
-            <div className="report-stat-grid">
-              <div className="soc-card" style={{ padding: 16 }}>
-                <small style={{ color: '#7a91ad', textTransform: 'uppercase', fontSize: 10, fontWeight: 700 }}>Investigation Status</small>
-                <div style={{ marginTop: 6 }}>
-                  <span className="soc-badge high">UNDER REVIEW</span>
-                </div>
+            <div className="stat-card">
+              <span className="stat-card-label">Combined Score</span>
+              <div className="stat-card-value">
+                {displayValue(risk?.base_score)}
+                <span style={{ fontSize: '13px', color: 'var(--text-muted)', fontWeight: 400 }}>
+                  {' '}/ {displayValue(risk?.max_score || 70)}
+                </span>
               </div>
+              <span className="stat-card-detail">Multi-layer scoring</span>
+            </div>
 
-              <div className="soc-card" style={{ padding: 16 }}>
-                <small style={{ color: '#7a91ad', textTransform: 'uppercase', fontSize: 10, fontWeight: 700 }}>Severity Rating</small>
-                <div style={{ marginTop: 6 }}>
-                  <span className={`soc-badge ${sev}`}>{sev.toUpperCase()}</span>
-                </div>
+            <div className="stat-card">
+              <span className="stat-card-label">Campus Node</span>
+              <div
+                style={{
+                  fontSize: '13px',
+                  fontWeight: 600,
+                  fontFamily: 'var(--font-mono)',
+                  color: 'var(--text-primary)',
+                  marginTop: '4px'
+                }}
+              >
+                {String(report.organization_id || 'Cross-Tenant')}
               </div>
+              <span className="stat-card-detail">Institution boundary</span>
+            </div>
 
-              <div className="soc-card" style={{ padding: 16 }}>
-                <small style={{ color: '#7a91ad', textTransform: 'uppercase', fontSize: 10, fontWeight: 700 }}>Composite Risk Meter</small>
-                <div style={{ marginTop: 6, display: 'flex', alignItems: 'center', gap: 10 }}>
-                  <strong style={{ color: '#f1f5fb', fontSize: 18, fontFamily: '"JetBrains Mono", monospace' }}>
-                    {riskScore} / {maxRisk}
-                  </strong>
-                  <div className="soc-risk-bar" style={{ flex: 1 }}>
-                    <div className={`soc-risk-fill ${sev}`} style={{ width: `${riskPct}%` }} />
-                  </div>
-                </div>
+            <div className="stat-card">
+              <span className="stat-card-label">Ingested At</span>
+              <div
+                style={{
+                  fontSize: '12px',
+                  fontFamily: 'var(--font-mono)',
+                  color: 'var(--text-primary)',
+                  marginTop: '6px'
+                }}
+              >
+                {displayValue(report.created_at || report.generated_at)}
               </div>
+              <span className="stat-card-detail">UTC timestamp</span>
+            </div>
+          </section>
 
-              <div className="soc-card" style={{ padding: 16 }}>
-                <small style={{ color: '#7a91ad', textTransform: 'uppercase', fontSize: 10, fontWeight: 700 }}>Origin Scope</small>
-                <div style={{ color: '#8ec5ff', fontSize: 16, fontWeight: 700, marginTop: 6 }}>
-                  Campus Tenant {String(report.organization_id || 'Shared')}
-                </div>
+          {/* Detailed Forensic Sections */}
+          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(340px, 1fr))', gap: '12px' }}>
+            {/* Envelope Details */}
+            <div className="data-section">
+              <div className="section-title-wrap">
+                <h3 className="section-title">Message Envelope</h3>
+                <span className="section-desc">Extracted transport headers</span>
+              </div>
+              <div className="report-code-block">
+                <strong>Sender:</strong> {displayValue(message?.from)}
+                {'\n'}<strong>Recipient:</strong> {displayValue(message?.to)}
+                {'\n'}<strong>Subject:</strong> {displayValue(message?.subject)}
+                {'\n'}<strong>Message ID:</strong> {displayValue(message?.message_id)}
               </div>
             </div>
 
-            {/* Privacy boundary */}
-            <aside className="central-privacy-note">
-              <span aria-hidden="true">🔒</span>
-              <p>
-                <strong>Privacy Protocol Active</strong> Raw recipient inboxes and message body texts are excluded from the central dossier. Only cryptographic fingerprints, header indicators, and network telemetry are correlated.
-              </p>
-            </aside>
-
-            {/* Sections */}
-            <Section title="Executive Threat Advisory">
-              <p style={{ margin: 0, color: '#dbeafe', lineHeight: 1.7, fontSize: 14 }}>
-                {String((report.advisory as Record<string, unknown> | undefined)?.summary || 'Investigation evidence and correlated telemetry are detailed below.')}
-              </p>
-              <p style={{ margin: '10px 0 0', color: '#a5b7cc', fontSize: 12 }}>
-                AI explanation: {String((report.advisory as Record<string, unknown> | undefined)?.ai_status || 'not available').replace(/_/g, ' ')}
-              </p>
-              <p style={{ margin: '16px 0 0', color: '#dbeafe', lineHeight: 1.8, fontSize: 14, whiteSpace: 'pre-wrap' }}>
-                {String(
-                  (report.advisory as Record<string, unknown> | undefined)?.detailed_report ||
-                  'Detailed AI report is not available for this message.'
-                )}
-              </p>
-              <div style={{ marginTop: 14 }}>
-                <Field
-                  label="Recommended next steps"
-                  value={(report.advisory as Record<string, unknown> | undefined)?.recommended_actions}
-                />
+            {/* Authentication Analysis */}
+            <div className="data-section">
+              <div className="section-title-wrap">
+                <h3 className="section-title">Authentication Checks</h3>
+                <span className="section-desc">SPF, DKIM, and Return-Path alignment</span>
               </div>
-            </Section>
+              <div className="report-code-block">
+                {displayValue(report.authentication)}
+              </div>
+            </div>
 
-            <Section title="Email Header & Sender Intelligence">
-              <Field label="Message ID" value={message?.message_id} isCode />
-              <Field label="Sender Address" value={message?.from} />
-              <Field label="Target Recipient Scope" value={Array.isArray(message?.to) ? message?.to.join(', ') : message?.to} />
-              <Field label="Subject Line" value={message?.subject} />
-            </Section>
+            {/* Why Flagged */}
+            <div className="data-section" style={{ gridColumn: '1 / -1' }}>
+              <div className="section-title-wrap">
+                <h3 className="section-title">Detection Findings</h3>
+                <span className="section-desc">Triggers across Layer 1 (Auth), Layer 2 (Heuristics), Layer 3 (ML), and Layer 4 (YARA)</span>
+              </div>
+              <div className="report-code-block" style={{ color: 'var(--risk-high)' }}>
+                {displayValue(report.findings)}
+              </div>
+            </div>
 
-            <Section title="Extracted Threat Indicators">
-              <Field label="Detections & Findings" value={Array.isArray(report.findings) ? report.findings.join(' • ') : formatValue(report.findings)} />
-              <Field label="Malicious URLs" value={Array.isArray(report.urls) ? report.urls.join(', ') : formatValue(report.urls)} isCode />
-              <Field label="Observed IOCs" value={Array.isArray(report.iocs) ? report.iocs.join(' • ') : formatValue(report.iocs)} isCode />
-              <Field
-                label="Attachments"
-                value={
-                  Array.isArray(report.attachments)
-                    ? report.attachments
-                        .map((att) =>
-                          typeof att === 'object' && att
-                            ? `${(att as Record<string, unknown>).filename || 'Attachment'} (${(att as Record<string, unknown>).content_type || 'unknown'})`
-                            : String(att)
-                        )
-                        .join(', ')
-                    : formatValue(report.attachments)
-                }
-              />
-              <Field label="Threat Feed / VirusTotal" value={formatValue(report.virustotal)} />
-            </Section>
+            {/* URLs & Attachments */}
+            <div className="data-section">
+              <div className="section-title-wrap">
+                <h3 className="section-title">Extracted URLs</h3>
+                <span className="section-desc">Embedded hyperlinks found in email body</span>
+              </div>
+              <div className="report-code-block">
+                {displayValue(report.urls)}
+              </div>
+            </div>
 
-            <Section title="Authentication Validation & Detection Layers">
-              <Field label="SPF / DKIM / DMARC" value={formatValue(report.authentication)} />
-              <Field label="Inspection Layers" value={formatValue(report.layers)} />
-            </Section>
+            <div className="data-section">
+              <div className="section-title-wrap">
+                <h3 className="section-title">Payloads & Attachments</h3>
+                <span className="section-desc">Analyzed files and hashes</span>
+              </div>
+              <div className="report-code-block">
+                {displayValue(report.attachments)}
+              </div>
+            </div>
 
-            <Section title="Infrastructure & Geolocation Assessment">
-              <Field label="Source Host IP" value={geo?.source_ip} isCode />
-              <Field label="Country / Region / City" value={[geo?.country, geo?.region, geo?.city].filter(Boolean).join(' / ')} />
-              <Field label="Autonomous System (ASN)" value={geo?.asn} />
-              <Field label="VPN / Proxy Node Flag" value={geo?.is_vpn_proxy ? 'Identified VPN/Proxy Anonymizer' : 'Direct Host Connection'} />
-              <Field label="Attribution Confidence" value={geo?.confidence != null ? `${Math.round(Number(geo.confidence) * 100)}%` : null} />
-            </Section>
+            {/* Geolocation */}
+            <div className="data-section" style={{ gridColumn: '1 / -1' }}>
+              <div className="section-title-wrap">
+                <h3 className="section-title">Origin Network & Geolocation</h3>
+                <span className="section-desc">Source IP routing infrastructure</span>
+              </div>
+              <div className="report-code-block">
+                IP: {displayValue(geo?.source_ip)} · Country: {displayValue(geo?.country_name)} · ISP/ASN: {displayValue(geo?.isp)}
+              </div>
+            </div>
 
-            <Section title="Cryptographic Forensic Fingerprint">
-              <Field label="Email Body SHA-256" value={fingerprint?.body_sha256} isCode />
-              <Field label="Trend Micro TLSH Hash" value={fingerprint?.tlsh} isCode />
-              <Field label="Extracted IOC Count" value={fingerprint?.ioc_count} />
-            </Section>
-          </>
-        ) : (
-          <div className="soc-card" style={{ padding: 40, textAlign: 'center' }}>
-            <h3 style={{ color: '#ff6e6e', margin: '0 0 10px' }}>Investigation Dossier Unavailable</h3>
-            <p style={{ color: '#8fa2bd', margin: '0 0 16px' }}>
-              The requested report identifier does not match any current investigation record.
-            </p>
-            <Link href="/reports" className="btn-primary" style={{ display: 'inline-block' }}>
-              Return to Report Directory
-            </Link>
+            {/* Advisory Report */}
+            <div className="data-section" style={{ gridColumn: '1 / -1' }}>
+              <div className="section-header">
+                <div className="section-title-wrap">
+                  <h3 className="section-title">Plain-Language Forensic Advisory</h3>
+                  <span className="section-desc">Synthesized threat explanation</span>
+                </div>
+                {advisory?.ai_status && (
+                  <span className="badge badge-neutral">
+                    {displayValue(advisory.ai_status).replace(/_/g, ' ')}
+                  </span>
+                )}
+              </div>
+              <div
+                className="report-code-block"
+                style={{
+                  background: 'var(--bg-canvas)',
+                  lineHeight: '1.6',
+                  color: 'var(--text-primary)',
+                  fontSize: '12px'
+                }}
+              >
+                {displayValue(advisory?.detailed_report || advisory?.summary || 'No advisory summary returned.')}
+              </div>
+            </div>
+
+            {/* Recommended Action */}
+            <div className="data-section" style={{ gridColumn: '1 / -1' }}>
+              <div className="section-title-wrap">
+                <h3 className="section-title">Recommended SOC Remediation</h3>
+                <span className="section-desc">Actionable measures for connected tenant nodes</span>
+              </div>
+              <div
+                className="report-code-block"
+                style={{
+                  borderLeft: '3px solid var(--accent)',
+                  color: 'var(--text-primary)'
+                }}
+              >
+                {displayValue(advisory?.recommended_actions || 'Quarantine email from all campus mailboxes and push IOC to perimeter firewalls.')}
+              </div>
+            </div>
           </div>
-        )}
-      </div>
+        </>
+      )}
     </AppShell>
   );
 }

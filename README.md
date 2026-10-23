@@ -83,10 +83,11 @@ FastAPI backend (backend/app/main.py)
 
 ### 1. Start the backend
 
-PowerShell:
+PowerShell (run in a terminal; these commands work regardless of the terminal's
+starting directory):
 
 ```powershell
-cd backend
+Set-Location 'C:\Users\Abhishek tiwari\Downloads\centralsystem\mail-nexus701\backend'
 python -m venv .venv
 .\.venv\Scripts\Activate.ps1
 pip install -r requirements.txt
@@ -104,7 +105,7 @@ Invoke-RestMethod http://127.0.0.1:8000/health
 In a second terminal, with the backend dependencies available:
 
 ```powershell
-cd backend
+Set-Location 'C:\Users\Abhishek tiwari\Downloads\centralsystem\mail-nexus701\backend'
 python test_reports_smoke.py
 ```
 
@@ -112,18 +113,39 @@ The test submits a suspicious RFC822 message and verifies ingestion, scoring, re
 persistence, report retrieval, and JSON/CSV/Markdown/HTML downloads. No external API
 key or network service is required for this test.
 
-### 3. Start the two portals
+On Windows, the native `py-tlsh` package is skipped because it requires Microsoft
+C++ Build Tools. Mail analysis and correlation still run, but TLSH fingerprint
+comparisons are unavailable unless those build tools are installed and `py-tlsh` is
+installed separately.
+
+To run the full backend test suite, install its test dependencies and run:
 
 ```powershell
-cd frontend
+Set-Location 'C:\Users\Abhishek tiwari\Downloads\centralsystem\mail-nexus701\backend'
+python -m pip install -r requirements-dev.txt
+python -m pytest -q
+```
+
+### 3. Start the two portals
+
+Install frontend dependencies once if `frontend\node_modules` is not present:
+
+```powershell
+Set-Location 'C:\Users\Abhishek tiwari\Downloads\centralsystem\mail-nexus701\frontend'
 npm install
+```
+
+Run each portal in a separate terminal:
+
+```powershell
+Set-Location 'C:\Users\Abhishek tiwari\Downloads\centralsystem\mail-nexus701\frontend'
 npm run dev:college
 ```
 
 In another terminal:
 
 ```powershell
-cd frontend
+Set-Location 'C:\Users\Abhishek tiwari\Downloads\centralsystem\mail-nexus701\frontend'
 npm run dev:central
 ```
 

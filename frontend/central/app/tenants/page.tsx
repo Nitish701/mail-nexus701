@@ -3,6 +3,7 @@
 import { useEffect, useState, useMemo } from 'react';
 import Link from 'next/link';
 import { AppShell } from '../../components/AppShell';
+import { RequestError } from '../../components/RequestError';
 import { fetchCentralOrganizations, fetchCentralOrganizationReports } from '../../lib/api';
 import { CENTRAL_NAV } from '../../lib/nav';
 
@@ -14,6 +15,17 @@ type Organization = {
 
 type Report = Record<string, unknown>;
 
+function riskBadgeClass(severity: string) {
+  const s = severity.toLowerCase();
+  switch (s) {
+    case 'critical': return 'badge badge-critical';
+    case 'high': return 'badge badge-high';
+    case 'medium': return 'badge badge-medium';
+    case 'review': return 'badge badge-review';
+    default: return 'badge badge-review';
+  }
+}
+
 export default function CentralTenantsPage() {
   const [organizations, setOrganizations] = useState<Organization[]>([]);
   const [selectedOrgId, setSelectedOrgId] = useState<number | null>(null);
@@ -21,21 +33,28 @@ export default function CentralTenantsPage() {
   const [loadingOrgs, setLoadingOrgs] = useState(true);
   const [loadingReports, setLoadingReports] = useState(false);
   const [searchQuery, setSearchQuery] = useState('');
+  const [organizationError, setOrganizationError] = useState('');
+  const [reportError, setReportError] = useState('');
+  const [organizationReload, setOrganizationReload] = useState(0);
+  const [reportReload, setReportReload] = useState(0);
 
   // Load organizations
   useEffect(() => {
     let cancelled = false;
+    setLoadingOrgs(true);
+    setOrganizationError('');
     (async () => {
       try {
         const orgs = await fetchCentralOrganizations();
         if (!cancelled) {
           setOrganizations(orgs);
+          setOrganizationError('');
           if (orgs.length > 0) {
             setSelectedOrgId(orgs[0].id);
           }
         }
       } catch {
-        // Fallback gracefully
+        if (!cancelled) setOrganizationError('Unable to load registered organizations.');
       } finally {
         if (!cancelled) setLoadingOrgs(false);
       }
@@ -43,21 +62,30 @@ export default function CentralTenantsPage() {
     return () => {
       cancelled = true;
     };
-  }, []);
+  }, [organizationReload]);
 
   // Load reports for selected organization
   useEffect(() => {
-    if (selectedOrgId == null) return;
+    if (selectedOrgId == null) {
+      setLoadingReports(false);
+      setReports([]);
+      return;
+    }
     let cancelled = false;
     setLoadingReports(true);
+    setReportError('');
     (async () => {
       try {
         const res = await fetchCentralOrganizationReports(selectedOrgId);
         if (!cancelled) {
           setReports(Array.isArray(res.reports) ? res.reports : []);
+          setReportError('');
         }
       } catch {
-        if (!cancelled) setReports([]);
+        if (!cancelled) {
+          setReports([]);
+          setReportError('Unable to load reports for the selected organization.');
+        }
       } finally {
         if (!cancelled) setLoadingReports(false);
       }
@@ -65,7 +93,7 @@ export default function CentralTenantsPage() {
     return () => {
       cancelled = true;
     };
-  }, [selectedOrgId]);
+  }, [selectedOrgId, reportReload]);
 
   const filteredOrgs = useMemo(() => {
     if (!searchQuery.trim()) return organizations;
@@ -88,201 +116,194 @@ export default function CentralTenantsPage() {
 
   return (
     <AppShell
-      title="Multi-Tenant Security Command Center"
-      subtitle="Federated cross-campus registration, isolated threat scopes, and domain intelligence"
+      title="Tenant Management"
+      subtitle="Federated multi-campus isolation & domain scopes"
       navItems={[...CENTRAL_NAV]}
     >
-      <div className="soc-subpage">
-        {/* Organizations Section */}
-        <div className="soc-card">
-          <div className="soc-card-header">
-            <div>
-              <h2>Connected Institutions ({organizations.length})</h2>
-              <p>Select a campus tenant to inspect its scoped suspicious report stream</p>
-            </div>
-            <div className="soc-search-wrapper" style={{ maxWidth: 300 }}>
-              <span className="soc-search-icon">
-                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2">
-                  <circle cx="11" cy="11" r="8" />
-                  <path d="m21 21-4.3-4.3" />
-                </svg>
-              </span>
-              <input
-                type="text"
-                className="soc-search-input"
-                placeholder="Filter campuses by name or domain..."
-                value={searchQuery}
-                onChange={(e) => setSearchQuery(e.target.value)}
-                style={{ padding: '8px 12px 8px 34px', fontSize: 12 }}
-              />
-            </div>
-          </div>
-
-          <div className="soc-card-body">
-            {loadingOrgs ? (
-              <div style={{ padding: '32px 0', textAlign: 'center', color: '#8fa2bd' }}>
-                Loading registered campus tenants…
-              </div>
-            ) : filteredOrgs.length === 0 ? (
-              <div style={{ padding: '40px 0', textAlign: 'center', color: '#8fa2bd' }}>
-                No campus organizations match your filter.
-              </div>
-            ) : (
-              <div className="soc-tenant-grid">
-                {filteredOrgs.map((org) => {
-                  const isSelected = selectedOrgId === org.id;
-                  return (
-                    <div
-                      key={org.id}
-                      className={`soc-tenant-card ${isSelected ? 'selected' : ''}`}
-                      onClick={() => setSelectedOrgId(org.id)}
-                    >
-                      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 10 }}>
-                        <span style={{ color: '#8ec5ff', fontSize: 11, fontFamily: '"JetBrains Mono", monospace', fontWeight: 700 }}>
-                          TENANT #{org.id}
-                        </span>
-                        <span className="soc-badge low" style={{ fontSize: 9 }}>
-                          ACTIVE
-                        </span>
-                      </div>
-
-                      <h3 style={{ margin: '10px 0 6px', color: '#f1f5fb', fontSize: 17, fontWeight: 700 }}>
-                        {org.name}
-                      </h3>
-
-                      <div style={{ display: 'flex', flexWrap: 'wrap', gap: 5, marginTop: 10 }}>
-                        {org.domains.map((domain) => (
-                          <span
-                            key={domain}
-                            style={{
-                              background: 'rgba(255, 255, 255, 0.05)',
-                              border: '1px solid #223752',
-                              borderRadius: 4,
-                              padding: '2px 7px',
-                              color: '#a7bbd4',
-                              fontSize: 11,
-                              fontFamily: '"JetBrains Mono", monospace'
-                            }}
-                          >
-                            {domain}
-                          </span>
-                        ))}
-                      </div>
-
-                      <div style={{ marginTop: 14, paddingTop: 12, borderTop: '1px solid #1a2a40', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                        <small style={{ color: '#6e85a3', fontSize: 11 }}>Cryptographic Isolation</small>
-                        <span style={{ color: isSelected ? '#60a5fa' : '#8da4c2', fontSize: 11, fontWeight: 700 }}>
-                          {isSelected ? '● Scoped' : 'Select →'}
-                        </span>
-                      </div>
-                    </div>
-                  );
-                })}
-              </div>
-            )}
-          </div>
+      <header className="page-intro">
+        <div>
+          <h1>Organizations</h1>
+          <p>Browse registered organizations and persisted suspicious email reports.</p>
         </div>
-
-        {/* Selected Organization's Scoped Reports */}
-        {selectedOrg && (
-          <div className="soc-card">
-            <div className="soc-card-header">
-              <div>
-                <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
-                  <h2>{selectedOrg.name} — Scoped Threat Stream</h2>
-                  <span className="soc-badge info">Tenant #{selectedOrg.id}</span>
-                </div>
-                <p>
-                  Isolated threat telemetry for domains: {selectedOrg.domains.join(', ')}
-                </p>
-              </div>
-
-              <div style={{ display: 'flex', gap: 12 }}>
-                <div style={{ padding: '6px 14px', background: '#0a101d', border: '1px solid #223752', borderRadius: 8 }}>
-                  <small style={{ color: '#7a91ad', fontSize: 10, display: 'block', textTransform: 'uppercase' }}>Reports</small>
-                  <strong style={{ color: '#f1f5fb', fontSize: 16 }}>{stats.totalReports}</strong>
-                </div>
-                <div style={{ padding: '6px 14px', background: '#0a101d', border: '1px solid #223752', borderRadius: 8 }}>
-                  <small style={{ color: '#ff857f', fontSize: 10, display: 'block', textTransform: 'uppercase' }}>Critical</small>
-                  <strong style={{ color: '#ff6e6e', fontSize: 16 }}>{stats.critical}</strong>
-                </div>
-              </div>
+      </header>
+      {organizationError && (
+        <RequestError
+          message={organizationError}
+          onRetry={() => setOrganizationReload((version) => version + 1)}
+        />
+      )}
+      {reportError && (
+        <RequestError
+          message={reportError}
+          onRetry={() => setReportReload((version) => version + 1)}
+        />
+      )}
+      <div className="tenant-layout-grid">
+        {/* Campus Directory */}
+        <section className="data-section">
+          <div className="section-header">
+            <div className="section-title-wrap">
+              <h2 className="section-title">Participating Campuses ({organizations.length})</h2>
+              <span className="section-desc">Institutions registered with Mail-Nexus</span>
             </div>
+          </div>
 
-            <div className="soc-card-body" style={{ padding: 0 }}>
-              {loadingReports ? (
-                <div style={{ padding: '40px 24px', textAlign: 'center', color: '#8fa2bd' }}>
-                  Loading scoped reports for {selectedOrg.name}…
+          <input
+            type="text"
+            className="topbar-search-input"
+            style={{ width: '100%' }}
+            placeholder="Search campus or domain..."
+            value={searchQuery}
+            onChange={(e) => setSearchQuery(e.target.value)}
+          />
+
+          {loadingOrgs ? (
+            <div className="empty-state">Loading registered institutions...</div>
+          ) : organizationError ? null : filteredOrgs.length === 0 ? (
+            <div className="empty-state">No campuses match your search.</div>
+          ) : (
+            <div style={{ display: 'flex', flexDirection: 'column', gap: '4px' }}>
+              {filteredOrgs.map((org) => {
+                const isSelected = org.id === selectedOrgId;
+                return (
+                  <button
+                    key={org.id}
+                    type="button"
+                    onClick={() => setSelectedOrgId(org.id)}
+                    style={{
+                      display: 'flex',
+                      flexDirection: 'column',
+                      alignItems: 'flex-start',
+                      gap: '4px',
+                      padding: '10px 12px',
+                      background: isSelected ? 'var(--accent-subtle)' : 'var(--bg-canvas)',
+                      border: isSelected ? '1px solid var(--accent)' : '1px solid var(--border-subtle)',
+                      borderRadius: '4px',
+                      cursor: 'pointer',
+                      textAlign: 'left',
+                      transition: 'all 150ms ease'
+                    }}
+                  >
+                    <div style={{ display: 'flex', justifyContent: 'space-between', width: '100%', alignItems: 'center' }}>
+                      <strong style={{ color: isSelected ? 'var(--accent)' : 'var(--text-primary)', fontSize: '12px' }}>
+                        {org.name}
+                      </strong>
+                      <span className="status-dot is-live" />
+                    </div>
+                    <div style={{ display: 'flex', flexWrap: 'wrap', gap: '4px', marginTop: '2px' }}>
+                      {org.domains.map((d) => (
+                        <span key={d} className="signal-tag" style={{ fontSize: '9px', fontFamily: 'var(--font-mono)' }}>
+                          {d}
+                        </span>
+                      ))}
+                    </div>
+                  </button>
+                );
+              })}
+            </div>
+          )}
+        </section>
+
+        {/* Selected Campus Detail & Incident Reports */}
+        <div style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
+          {selectedOrg ? (
+            <>
+              {/* Scope KPI Cards */}
+              <section className="stat-grid">
+                <div className="stat-card">
+                  <span className="stat-card-label">Institution Scope</span>
+                  <div style={{ fontSize: '15px', fontWeight: 700, color: 'var(--text-primary)', marginTop: '4px' }}>
+                    {selectedOrg.name}
+                  </div>
+                  <span className="stat-card-detail">Org ID #{selectedOrg.id}</span>
                 </div>
-              ) : reports.length === 0 ? (
-                <div style={{ padding: '50px 24px', textAlign: 'center', color: '#8fa2bd' }}>
-                  <div style={{ fontSize: 24, marginBottom: 8 }}>🛡️</div>
-                  <strong style={{ display: 'block', color: '#e5f0ff', marginBottom: 6 }}>
-                    No suspicious activity logged
-                  </strong>
-                  All email traffic within {selectedOrg.name} has passed local heuristic & ML scrutiny.
+
+                <div className="stat-card">
+                  <span className="stat-card-label">Isolated Incidents</span>
+                  <div className="stat-card-value">{stats.totalReports}</div>
+                  <span className="stat-card-detail">Logged threat reports</span>
                 </div>
-              ) : (
-                <div className="soc-table-wrapper" style={{ border: 'none', borderRadius: 0 }}>
-                  <table className="soc-table">
-                    <thead>
-                      <tr>
-                        <th>Report ID</th>
-                        <th>Threat Title / Subject</th>
-                        <th>Severity</th>
-                        <th>Risk Score</th>
-                        <th>Recorded Date</th>
-                        <th style={{ textAlign: 'right' }}>Actions</th>
-                      </tr>
-                    </thead>
-                    <tbody>
-                      {reports.map((report) => {
-                        const sev = String(report.severity || 'low').toLowerCase();
-                        const riskScore = (report.risk as Record<string, unknown>)?.base_score ?? (sev === 'critical' ? 64 : sev === 'high' ? 51 : 28);
-                        return (
+
+                <div className="stat-card tone-critical">
+                  <span className="stat-card-label">Critical reports</span>
+                  <div className="stat-card-value">{stats.critical}</div>
+                  <span className="stat-card-detail">Requiring SOC intervention</span>
+                </div>
+
+                <div className="stat-card tone-high">
+                  <span className="stat-card-label">High-severity reports</span>
+                  <div className="stat-card-value">{stats.high}</div>
+                  <span className="stat-card-detail">Severity reported by the API</span>
+                </div>
+              </section>
+
+              {/* Reports Table for Selected Tenant */}
+              <section className="data-section">
+                <div className="section-header">
+                  <div className="section-title-wrap">
+                    <h2 className="section-title">Incident Reports for {selectedOrg.name}</h2>
+                    <span className="section-desc">Filtered strictly to this campus boundary scope.</span>
+                  </div>
+                </div>
+
+                {loadingReports ? (
+                  <div className="empty-state">Loading tenant-scoped reports...</div>
+                ) : reportError ? null : reports.length === 0 ? (
+                  <div className="empty-state">No incident reports recorded for this campus.</div>
+                ) : (
+                  <div className="data-table-wrap">
+                    <table className="data-table">
+                      <thead>
+                        <tr>
+                          <th style={{ width: '140px' }}>Report ID</th>
+                          <th>Threat Topic / Subject</th>
+                          <th style={{ width: '100px' }}>Severity</th>
+                          <th style={{ width: '110px' }}>Status</th>
+                          <th style={{ width: '80px', textAlign: 'right' }}>Action</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {reports.map((report) => (
                           <tr key={String(report.report_id)}>
+                            <td style={{ fontFamily: 'var(--font-mono)', fontSize: '11px', color: 'var(--accent)' }}>
+                              {String(report.report_id)}
+                            </td>
                             <td>
-                              <span style={{ fontFamily: '"JetBrains Mono", monospace', fontWeight: 700, color: '#8ec5ff' }}>
-                                {String(report.report_id).slice(0, 16)}
+                              <Link
+                                href={`/reports/${encodeURIComponent(String(report.report_id))}`}
+                                className="table-subject-link"
+                              >
+                                {String(report.title || 'Inbound Incident')}
+                              </Link>
+                            </td>
+                            <td>
+                              <span className={riskBadgeClass(String(report.severity || ''))}>
+                                {String(report.severity || 'Not provided')}
                               </span>
                             </td>
                             <td>
-                              <strong style={{ color: '#f1f5fb' }}>
-                                {String(report.title || 'Suspicious Email Ingestion')}
-                              </strong>
-                            </td>
-                            <td>
-                              <span className={`soc-badge ${sev}`}>{sev}</span>
-                            </td>
-                            <td>
-                              <span style={{ fontFamily: '"JetBrains Mono", monospace', fontWeight: 700, color: sev === 'critical' ? '#ff6e6e' : '#ffd455' }}>
-                                {String(riskScore)} / 70
-                              </span>
-                            </td>
-                            <td>
-                              <span style={{ color: '#7a8fa9', fontSize: 12, fontFamily: '"JetBrains Mono", monospace' }}>
-                                {report.created_at ? String(report.created_at).slice(0, 16).replace('T', ' ') : 'Live'}
-                              </span>
+                              <span className="badge badge-neutral">ANALYZED</span>
                             </td>
                             <td style={{ textAlign: 'right' }}>
                               <Link
                                 href={`/reports/${encodeURIComponent(String(report.report_id))}`}
-                                className="btn-primary"
-                                style={{ padding: '6px 12px', fontSize: 12 }}
+                                className="btn btn-secondary btn-sm"
                               >
-                                Review Evidence →
+                                Inspect
                               </Link>
                             </td>
                           </tr>
-                        );
-                      })}
-                    </tbody>
-                  </table>
-                </div>
-              )}
-            </div>
-          </div>
-        )}
+                        ))}
+                      </tbody>
+                    </table>
+                  </div>
+                )}
+              </section>
+            </>
+          ) : (
+            <div className="empty-state">Select an institution from the directory.</div>
+          )}
+        </div>
       </div>
     </AppShell>
   );

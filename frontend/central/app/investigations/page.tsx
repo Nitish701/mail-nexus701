@@ -3,27 +3,57 @@
 import Link from 'next/link';
 import { useEffect, useState, useMemo } from 'react';
 import { AppShell } from '../../components/AppShell';
+import { RequestError } from '../../components/RequestError';
 import { fetchCentralReports } from '../../lib/api';
 import { CENTRAL_NAV } from '../../lib/nav';
 
 type Report = Record<string, unknown>;
+
+function riskBadgeClass(severity: string) {
+  const s = severity.toLowerCase();
+  switch (s) {
+    case 'critical': return 'badge badge-critical';
+    case 'high': return 'badge badge-high';
+    case 'medium': return 'badge badge-medium';
+    case 'review': return 'badge badge-review';
+    default: return 'badge badge-review';
+  }
+}
+
+function formatDate(value: unknown) {
+  if (!value) return 'Time unavailable';
+  const d = new Date(String(value));
+  return Number.isNaN(d.getTime()) ? String(value) : d.toLocaleString(undefined, {
+    month: 'short',
+    day: 'numeric',
+    hour: '2-digit',
+    minute: '2-digit'
+  });
+}
 
 export default function CentralInvestigationsPage() {
   const [reports, setReports] = useState<Report[]>([]);
   const [loading, setLoading] = useState(true);
   const [searchQuery, setSearchQuery] = useState('');
   const [severityFilter, setSeverityFilter] = useState<'all' | 'critical' | 'high' | 'medium' | 'low' | 'review'>('all');
+  const [requestError, setRequestError] = useState('');
+  const [reloadKey, setReloadKey] = useState(0);
 
   useEffect(() => {
     let cancelled = false;
+    setLoading(true);
+    setRequestError('');
     (async () => {
       try {
         const result = await fetchCentralReports();
         if (!cancelled) {
           setReports(Array.isArray(result.reports) ? result.reports : []);
         }
-      } catch {
-        // Fallback gracefully
+      } catch (error) {
+        if (!cancelled) {
+          setReports([]);
+          setRequestError(error instanceof Error ? error.message : 'Unable to load investigations.');
+        }
       } finally {
         if (!cancelled) setLoading(false);
       }
@@ -31,11 +61,11 @@ export default function CentralInvestigationsPage() {
     return () => {
       cancelled = true;
     };
-  }, []);
+  }, [reloadKey]);
 
   const filteredReports = useMemo(() => {
     return reports.filter((report) => {
-      const severity = String(report.severity || 'low').toLowerCase();
+      const severity = String(report.severity || 'unknown').toLowerCase();
       if (severityFilter !== 'all' && severity !== severityFilter) {
         return false;
       }
@@ -55,7 +85,9 @@ export default function CentralInvestigationsPage() {
     const total = reports.length;
     const critical = reports.filter((r) => String(r.severity || '').toLowerCase() === 'critical').length;
     const high = reports.filter((r) => String(r.severity || '').toLowerCase() === 'high').length;
-    const orgs = new Set(reports.map((r) => String(r.organization_id || 'default'))).size;
+    const orgs = new Set(
+      reports.map((r) => r.organization_id).filter((id) => id !== null && id !== undefined).map(String)
+    ).size;
     return { total, critical, high, orgs };
   }, [reports]);
 
@@ -82,204 +114,154 @@ export default function CentralInvestigationsPage() {
 
   return (
     <AppShell
-      title="Central Investigations Queue"
-      subtitle="Federated threat triage across all connected institution mailstreams"
+      title="Investigations Queue"
+      subtitle="Federated threat triage across all campus mailstreams"
       navItems={[...CENTRAL_NAV]}
     >
-      <div className="soc-subpage">
-        {/* KPI Strip */}
-        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))', gap: 14 }}>
-          <div className="soc-card" style={{ padding: '18px 20px' }}>
-            <span style={{ color: '#8fa2bd', fontSize: 11, fontWeight: 700, textTransform: 'uppercase', letterSpacing: 0.8 }}>
-              Active Investigations
-            </span>
-            <div style={{ color: '#f1f5fb', fontSize: 28, fontWeight: 800, marginTop: 6, fontFamily: '"JetBrains Mono", monospace' }}>
-              {stats.total}
-            </div>
-            <small style={{ color: '#687e9c', fontSize: 11 }}>Suspicious threshold crossed</small>
-          </div>
-
-          <div className="soc-card" style={{ padding: '18px 20px', borderTop: '2px solid #ef665f' }}>
-            <span style={{ color: '#ff857f', fontSize: 11, fontWeight: 700, textTransform: 'uppercase', letterSpacing: 0.8 }}>
-              Critical Severity
-            </span>
-            <div style={{ color: '#ff766e', fontSize: 28, fontWeight: 800, marginTop: 6, fontFamily: '"JetBrains Mono", monospace' }}>
-              {stats.critical}
-            </div>
-            <small style={{ color: '#687e9c', fontSize: 11 }}>Immediate SOC intervention</small>
-          </div>
-
-          <div className="soc-card" style={{ padding: '18px 20px', borderTop: '2px solid #ffaa55' }}>
-            <span style={{ color: '#ffb977', fontSize: 11, fontWeight: 700, textTransform: 'uppercase', letterSpacing: 0.8 }}>
-              High-Risk Threats
-            </span>
-            <div style={{ color: '#ffaa55', fontSize: 28, fontWeight: 800, marginTop: 6, fontFamily: '"JetBrains Mono", monospace' }}>
-              {stats.high}
-            </div>
-            <small style={{ color: '#687e9c', fontSize: 11 }}>Escalated correlation signals</small>
-          </div>
-
-          <div className="soc-card" style={{ padding: '18px 20px', borderTop: '2px solid #5599ff' }}>
-            <span style={{ color: '#85b8ff', fontSize: 11, fontWeight: 700, textTransform: 'uppercase', letterSpacing: 0.8 }}>
-              Impacted Tenants
-            </span>
-            <div style={{ color: '#73aaff', fontSize: 28, fontWeight: 800, marginTop: 6, fontFamily: '"JetBrains Mono", monospace' }}>
-              {stats.orgs}
-            </div>
-            <small style={{ color: '#687e9c', fontSize: 11 }}>Participating campuses</small>
-          </div>
+      <header className="page-intro">
+        <div>
+          <h1>Investigation queue</h1>
+          <p>Filter and inspect suspicious email reports returned by the backend.</p>
+        </div>
+      </header>
+      {requestError && (
+        <RequestError
+          message={`Unable to load investigations: ${requestError}`}
+          onRetry={() => setReloadKey((key) => key + 1)}
+        />
+      )}
+      {/* KPI Row */}
+      <section className="stat-grid">
+        <div className="stat-card">
+          <span className="stat-card-label">Suspicious reports</span>
+          <div className="stat-card-value">{stats.total}</div>
+          <span className="stat-card-detail">Reports returned by the API</span>
         </div>
 
-        {/* Filter & Search Bar */}
-        <div className="soc-filter-bar">
-          <div className="soc-search-wrapper">
-            <span className="soc-search-icon">
-              <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round">
-                <circle cx="11" cy="11" r="8" />
-                <path d="m21 21-4.3-4.3" />
-              </svg>
-            </span>
-            <input
-              type="text"
-              className="soc-search-input"
-              placeholder="Search by Report ID, subject, sender, or organization..."
-              value={searchQuery}
-              onChange={(e) => setSearchQuery(e.target.value)}
-            />
-          </div>
+        <div className="stat-card tone-critical">
+          <span className="stat-card-label">Critical reports</span>
+          <div className="stat-card-value">{stats.critical}</div>
+          <span className="stat-card-detail">Immediate action required</span>
+        </div>
 
-          <div style={{ display: 'flex', alignItems: 'center', gap: 12, flexWrap: 'wrap' }}>
-            <div className="soc-pill-group">
-              {(['all', 'critical', 'high', 'medium', 'low', 'review'] as const).map((sev) => (
-                <button
-                  key={sev}
-                  type="button"
-                  className={`soc-pill-btn ${severityFilter === sev ? 'active' : ''}`}
-                  onClick={() => setSeverityFilter(sev)}
-                >
-                  {sev.toUpperCase()}
-                </button>
-              ))}
-            </div>
+        <div className="stat-card tone-high">
+          <span className="stat-card-label">High-severity reports</span>
+          <div className="stat-card-value">{stats.high}</div>
+          <span className="stat-card-detail">Severity reported by the API</span>
+        </div>
 
+        <div className="stat-card tone-ok">
+          <span className="stat-card-label">Organizations with reports</span>
+          <div className="stat-card-value">{stats.orgs}</div>
+          <span className="stat-card-detail">Organizations with assigned reports</span>
+        </div>
+      </section>
+
+      {/* Filter and Search Bar */}
+      <div className="feed-controls">
+        <div className="filter-pill-group">
+          {(['all', 'critical', 'high', 'medium', 'low', 'review'] as const).map((sev) => (
             <button
+              key={sev}
               type="button"
-              className="soc-copy-btn"
-              onClick={handleExportCsv}
-              title="Export investigations as CSV"
-              style={{ padding: '8px 14px' }}
+              className={`filter-pill ${severityFilter === sev ? 'is-active' : ''}`}
+              onClick={() => setSeverityFilter(sev)}
             >
-              <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-                <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4" />
-                <polyline points="7 10 12 15 17 10" />
-                <line x1="12" y1="15" x2="12" y2="3" />
-              </svg>
-              Export CSV
+              {sev.toUpperCase()}
             </button>
-          </div>
+          ))}
         </div>
 
-        {/* Table Card */}
-        <div className="soc-card">
-          <div className="soc-card-header">
-            <div>
-              <h2>Investigation Queue</h2>
-              <p>Showing {filteredReports.length} of {reports.length} security alerts</p>
-            </div>
-            <span className="soc-badge info">Autonomous Correlation Enabled</span>
-          </div>
-
-          <div className="soc-card-body" style={{ padding: 0 }}>
-            {loading ? (
-              <div style={{ padding: '48px 24px', textAlign: 'center', color: '#8aa0be' }}>
-                Loading threat investigations…
-              </div>
-            ) : filteredReports.length === 0 ? (
-              <div style={{ padding: '60px 24px', textAlign: 'center', color: '#8fa2bd' }}>
-                <div style={{ fontSize: 24, marginBottom: 8 }}>🛡️</div>
-                <strong style={{ display: 'block', color: '#e5f0ff', marginBottom: 6 }}>No matching investigations found</strong>
-                {reports.length === 0
-                  ? 'No suspicious emails have crossed the federated threat threshold yet.'
-                  : 'Try adjusting your search query or severity filters.'}
-              </div>
-            ) : (
-              <div className="soc-table-wrapper" style={{ border: 'none', borderRadius: 0 }}>
-                <table className="soc-table">
-                  <thead>
-                    <tr>
-                      <th>Report ID</th>
-                      <th>Threat Subject / Title</th>
-                      <th>Severity</th>
-                      <th>Risk Meter</th>
-                      <th>Campus Tenant</th>
-                      <th>Observed</th>
-                      <th style={{ textAlign: 'right' }}>Actions</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {filteredReports.map((report) => {
-                      const sev = String(report.severity || 'low').toLowerCase();
-                      const riskScore = Number((report.risk as Record<string, unknown>)?.base_score ?? (sev === 'critical' ? 65 : sev === 'high' ? 52 : sev === 'medium' ? 38 : 22));
-                      const maxScore = 70;
-                      const scorePct = Math.min(100, Math.round((riskScore / maxScore) * 100));
-
-                      return (
-                        <tr key={String(report.report_id)}>
-                          <td>
-                            <span style={{ fontFamily: '"JetBrains Mono", monospace', fontWeight: 700, color: '#8ec5ff' }}>
-                              {String(report.report_id).slice(0, 14)}
-                            </span>
-                          </td>
-                          <td>
-                            <strong style={{ color: '#f0f5ff', display: 'block', maxWidth: 320, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
-                              {String(report.title || 'Suspicious Email Ingestion')}
-                            </strong>
-                            <small style={{ color: '#768ca8', fontSize: 11 }}>
-                              {String(report.report_type || 'Email threat vector')}
-                            </small>
-                          </td>
-                          <td>
-                            <span className={`soc-badge ${sev}`}>{sev}</span>
-                          </td>
-                          <td>
-                            <div className="soc-risk-meter">
-                              <span style={{ fontFamily: '"JetBrains Mono", monospace', fontSize: 12, fontWeight: 700, width: 44 }}>
-                                {riskScore}/{maxScore}
-                              </span>
-                              <div className="soc-risk-bar">
-                                <div className={`soc-risk-fill ${sev}`} style={{ width: `${scorePct}%` }} />
-                              </div>
-                            </div>
-                          </td>
-                          <td>
-                            <span style={{ color: '#a5b7d1', fontSize: 12 }}>
-                              Org {String(report.organization_id || 'Federated')}
-                            </span>
-                          </td>
-                          <td>
-                            <span style={{ color: '#7a8fa9', fontSize: 12, fontFamily: '"JetBrains Mono", monospace' }}>
-                              {report.created_at ? String(report.created_at).slice(0, 16).replace('T', ' ') : 'Live stream'}
-                            </span>
-                          </td>
-                          <td style={{ textAlign: 'right' }}>
-                            <Link
-                              href={`/reports/${encodeURIComponent(String(report.report_id))}`}
-                              className="btn-primary"
-                              style={{ padding: '6px 12px', fontSize: 12, textDecoration: 'none' }}
-                            >
-                              Investigate →
-                            </Link>
-                          </td>
-                        </tr>
-                      );
-                    })}
-                  </tbody>
-                </table>
-              </div>
-            )}
-          </div>
+        <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+          <input
+            type="text"
+            className="topbar-search-input"
+            style={{ width: '220px' }}
+            placeholder="Search report ID, sender, org..."
+            value={searchQuery}
+            onChange={(e) => setSearchQuery(e.target.value)}
+          />
+          <button
+            type="button"
+            className="btn btn-secondary btn-sm"
+            onClick={handleExportCsv}
+            disabled={!filteredReports.length}
+          >
+            Export CSV
+          </button>
         </div>
       </div>
+
+      {/* Investigations Table */}
+      <section className="data-section">
+        <div className="section-header">
+          <div className="section-title-wrap">
+            <h2 className="section-title">Federated Incident Queue ({filteredReports.length})</h2>
+            <span className="section-desc">Showing incident dossiers flagged across institutions. Click any report to inspect evidence.</span>
+          </div>
+        </div>
+
+        {loading ? (
+          <div className="empty-state">Loading investigation queue...</div>
+        ) : requestError ? null : filteredReports.length === 0 ? (
+          <div className="empty-state">No investigations match the selected filter criteria.</div>
+        ) : (
+          <div className="data-table-wrap">
+            <table className="data-table">
+              <thead>
+                <tr>
+                  <th style={{ width: '130px' }}>Created</th>
+                  <th style={{ width: '140px' }}>Report ID</th>
+                  <th style={{ width: '120px' }}>Institution</th>
+                  <th>Threat Subject / Title</th>
+                  <th style={{ width: '100px' }}>Severity</th>
+                  <th style={{ width: '110px' }}>Status</th>
+                  <th style={{ width: '80px', textAlign: 'right' }}>Action</th>
+                </tr>
+              </thead>
+              <tbody>
+                {filteredReports.map((report) => (
+                  <tr key={String(report.report_id)}>
+                    <td style={{ fontFamily: 'var(--font-mono)', fontSize: '11px', color: 'var(--text-muted)' }}>
+                      {formatDate(report.created_at)}
+                    </td>
+                    <td style={{ fontFamily: 'var(--font-mono)', fontSize: '11px', color: 'var(--accent)' }}>
+                      {String(report.report_id)}
+                    </td>
+                    <td style={{ fontFamily: 'var(--font-mono)', color: 'var(--text-secondary)' }}>
+                      {String(report.organization_id ?? 'Not assigned')}
+                    </td>
+                    <td>
+                      <Link
+                        href={`/reports/${encodeURIComponent(String(report.report_id))}`}
+                        className="table-subject-link"
+                      >
+                        {String(report.title || 'Threat Investigation')}
+                      </Link>
+                    </td>
+                    <td>
+                      <span className={riskBadgeClass(String(report.severity || 'high'))}>
+                        {String(report.severity || 'Not provided')}
+                      </span>
+                    </td>
+                    <td>
+                      <span className="badge badge-review">UNDER REVIEW</span>
+                    </td>
+                    <td style={{ textAlign: 'right' }}>
+                      <Link
+                        href={`/reports/${encodeURIComponent(String(report.report_id))}`}
+                        className="btn btn-secondary btn-sm"
+                      >
+                        Triage
+                      </Link>
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        )}
+      </section>
     </AppShell>
   );
 }

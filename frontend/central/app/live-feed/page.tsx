@@ -1,9 +1,10 @@
 'use client';
 
-import { useEffect, useState, useMemo, useRef } from 'react';
+import { useEffect, useState, useRef } from 'react';
 import Link from 'next/link';
 import { AppShell } from '../../components/AppShell';
 import { fetchCentralReports } from '../../lib/api';
+import { RequestError } from '../../components/RequestError';
 import { CENTRAL_NAV } from '../../lib/nav';
 
 const API_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000';
@@ -13,7 +14,7 @@ type FeedEvent = {
   id: string;
   event_type?: string;
   timestamp?: string;
-  receivedAt: number;
+  receivedAt?: number;
   tenant_id?: string;
   campaign_id?: string;
   risk_score?: number;
@@ -31,24 +32,15 @@ function formatRelativeTime(timestampMs: number, now: number) {
   return `${Math.floor(diffMin / 60)}h ago`;
 }
 
-function playThreatBeep() {
-  try {
-    const AudioContextClass = window.AudioContext || (window as unknown as { webkitAudioContext: typeof AudioContext }).webkitAudioContext;
-    if (!AudioContextClass) return;
-    const ctx = new AudioContextClass();
-    const osc = ctx.createOscillator();
-    const gain = ctx.createGain();
-    osc.type = 'sine';
-    osc.frequency.setValueAtTime(880, ctx.currentTime);
-    osc.frequency.exponentialRampToValueAtTime(440, ctx.currentTime + 0.12);
-    gain.gain.setValueAtTime(0.08, ctx.currentTime);
-    gain.gain.exponentialRampToValueAtTime(0.001, ctx.currentTime + 0.12);
-    osc.connect(gain);
-    gain.connect(ctx.destination);
-    osc.start();
-    osc.stop(ctx.currentTime + 0.13);
-  } catch {
-    // Audio might be blocked before interaction
+function riskBadgeClass(severity?: string) {
+  const s = (severity || '').toLowerCase();
+  switch (s) {
+    case 'critical': return 'badge badge-critical';
+    case 'high': return 'badge badge-high';
+    case 'medium': return 'badge badge-medium';
+    case 'review': return 'badge badge-review';
+    case 'low': return 'badge badge-low';
+    default: return 'badge badge-neutral';
   }
 }
 
@@ -60,10 +52,10 @@ export default function CentralLiveFeedPage() {
   const [selectedEvent, setSelectedEvent] = useState<FeedEvent | null>(null);
   const [filterType, setFilterType] = useState<'all' | 'critical' | 'campaign' | 'ingestion'>('all');
   const [currentTime, setCurrentTime] = useState(Date.now());
+  const [reportError, setReportError] = useState('');
+  const [reloadKey, setReloadKey] = useState(0);
   const pausedRef = useRef(paused);
   pausedRef.current = paused;
-  const soundRef = useRef(soundEnabled);
-  soundRef.current = soundEnabled;
 
   // Active time ticker for relative timestamps
   useEffect(() => {
@@ -73,66 +65,75 @@ export default function CentralLiveFeedPage() {
     return () => clearInterval(timer);
   }, []);
 
-  // WebSocket and baseline report loading
   useEffect(() => {
     let socket: WebSocket | undefined;
     let cancelled = false;
+    setReportError('');
 
-    // Load initial history from reports
     fetchCentralReports().then((result) => {
       if (cancelled) return;
-      const initial: FeedEvent[] = (result.reports || []).map((r, i) => {
-        const sev = String(r.severity || 'high').toLowerCase();
+      const initial: FeedEvent[] = result.reports.map((r) => {
+        const receivedAt = r.created_at ? new Date(String(r.created_at)).getTime() : Number.NaN;
         return {
-          id: `hist-${String(r.report_id || i)}`,
+          id: `hist-${String(r.report_id)}`,
           event_type: 'REPORT_INGESTED',
-          timestamp: String(r.created_at || new Date().toISOString()),
-          receivedAt: Date.now() - (i + 1) * 35000,
-          tenant_id: String(r.organization_id || 'campus-tenant'),
-          severity: sev,
-          title: String(r.title || 'Suspicious Email Ingestion Alert'),
-          risk_score: (sev === 'critical' ? 68 : sev === 'high' ? 54 : 32),
+          timestamp: r.created_at ? String(r.created_at) : undefined,
+          receivedAt: Number.isNaN(receivedAt) ? undefined : receivedAt,
+          tenant_id: r.organization_id ? String(r.organization_id) : undefined,
+          severity: typeof r.severity === 'string' ? r.severity : undefined,
+          title: typeof r.title === 'string' ? r.title : undefined,
           data: r
         };
       });
       setEvents(initial);
+      if (initial.length > 0 && !selectedEvent) {
+        setSelectedEvent(initial[0]);
+      }
+    }).catch((error: unknown) => {
+      if (!cancelled) {
+        setReportError(error instanceof Error ? error.message : 'Could not load report history.');
+      }
     });
 
     try {
       socket = new WebSocket(WS_URL);
-      socket.onopen = () => setConnected(true);
-      socket.onclose = () => setConnected(false);
-      socket.onerror = () => setConnected(false);
-      socket.onmessage = (message) => {
+      socket.onopen = () => {
+        if (!cancelled) setConnected(true);
+      };
+      socket.onmessage = (event) => {
+        if (cancelled || pausedRef.current) return;
         try {
-          const raw = JSON.parse(message.data) as Record<string, unknown>;
-          if (raw.event_type === 'CONNECTED') return;
-
-          if (pausedRef.current) return;
-
-          const data = (raw.data as Record<string, unknown>) || {};
-          const sev = String(raw.severity || (raw.risk_score && Number(raw.risk_score) > 60 ? 'critical' : 'high')).toLowerCase();
+          const payload = JSON.parse(event.data) as Record<string, unknown>;
           const newEvent: FeedEvent = {
             id: `ws-${Date.now()}-${Math.random().toString(36).substring(2, 6)}`,
-            event_type: String(raw.event_type || 'THREAT_EVENT'),
-            timestamp: String(raw.timestamp || new Date().toISOString()),
+            event_type: typeof payload.type === 'string'
+              ? payload.type
+              : typeof payload.event_type === 'string' ? payload.event_type : undefined,
+            timestamp: typeof payload.timestamp === 'string' ? payload.timestamp : undefined,
             receivedAt: Date.now(),
-            tenant_id: String(raw.tenant_id || data.tenant_id || 'Cross-Tenant'),
-            campaign_id: raw.campaign_id ? String(raw.campaign_id) : undefined,
-            risk_score: raw.risk_score ? Number(raw.risk_score) : (sev === 'critical' ? 68 : 52),
-            severity: sev,
-            title: String(data.subject || raw.title || raw.event_type || 'Incoming Threat Fingerprint'),
-            data: raw
+            tenant_id: typeof payload.tenant_id === 'string'
+              ? payload.tenant_id
+              : typeof payload.tenant === 'string' ? payload.tenant : undefined,
+            campaign_id: payload.campaign_id ? String(payload.campaign_id) : undefined,
+            risk_score: typeof payload.risk_score === 'number' && Number.isFinite(payload.risk_score)
+              ? payload.risk_score
+              : undefined,
+            severity: typeof payload.severity === 'string' ? payload.severity : undefined,
+            title: typeof (payload.subject || payload.title || payload.detail) === 'string'
+              ? String(payload.subject || payload.title || payload.detail)
+              : undefined,
+            data: payload
           };
-
-          if (soundRef.current && (sev === 'critical' || sev === 'high')) {
-            playThreatBeep();
-          }
-
-          setEvents((curr) => [newEvent, ...curr].slice(0, 100));
+          setEvents((prev) => [newEvent, ...prev.slice(0, 99)]);
         } catch {
-          // Ignore malformed payloads
+          // Ignore malformed WS frames
         }
+      };
+      socket.onclose = () => {
+        if (!cancelled) setConnected(false);
+      };
+      socket.onerror = () => {
+        if (!cancelled) setConnected(false);
       };
     } catch {
       setConnected(false);
@@ -140,344 +141,195 @@ export default function CentralLiveFeedPage() {
 
     return () => {
       cancelled = true;
-      socket?.close();
+      if (socket) socket.close();
     };
-  }, []);
+  }, [reloadKey]);
 
-  const filteredEvents = useMemo(() => {
-    return events.filter((ev) => {
-      if (filterType === 'critical') {
-        return ev.severity === 'critical' || (ev.risk_score && ev.risk_score >= 60);
-      }
-      if (filterType === 'campaign') {
-        return Boolean(ev.campaign_id) || ev.event_type?.includes('CAMPAIGN');
-      }
-      if (filterType === 'ingestion') {
-        return ev.event_type?.includes('INGEST') || ev.event_type?.includes('EMAIL');
-      }
-      return true;
-    });
-  }, [events, filterType]);
+  const filteredEvents = events.filter((evt) => {
+    if (filterType === 'critical') {
+      return (evt.severity || '').toLowerCase() === 'critical';
+    }
+    if (filterType === 'campaign') {
+      return !!evt.campaign_id || (evt.event_type || '').includes('CAMPAIGN');
+    }
+    if (filterType === 'ingestion') {
+      return (evt.event_type || '').includes('REPORT') || (evt.event_type || '').includes('INGEST');
+    }
+    return true;
+  });
 
   return (
-    <AppShell
-      title="Real-Time Cross-Tenant Threat Stream"
-      subtitle="Autonomous fingerprint ingestion, cluster detections, and live correlation events"
-      navItems={[...CENTRAL_NAV]}
-    >
-      <div className="soc-subpage">
-        {/* Stream Status & Controls Bar */}
-        <div className="soc-filter-bar">
-          <div style={{ display: 'flex', alignItems: 'center', gap: 14 }}>
-            <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-              <span
-                style={{
-                  width: 9,
-                  height: 9,
-                  borderRadius: '50%',
-                  background: connected ? '#34d399' : '#f87171',
-                  boxShadow: connected ? '0 0 10px #34d399' : '0 0 10px #f87171'
-                }}
-              />
-              <strong style={{ color: '#f1f5fb', fontSize: 13 }}>
-                {connected ? 'Ingestion Stream Online' : 'Connecting to Stream…'}
-              </strong>
-            </div>
+    <AppShell title="Live Threat Feed" subtitle="Real-time multi-tenant telemetry stream">
+      {/* Feed Controls Bar */}
+      <div className="feed-controls">
+        <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
+          <div className="status-pill">
+            <span className={`status-dot ${connected ? 'is-live' : ''}`} style={{ background: connected ? 'var(--risk-low)' : 'var(--risk-critical)' }} />
+            <span>{connected ? 'WebSocket connected' : 'WebSocket disconnected'}</span>
+          </div>
+          <span style={{ fontSize: '11px', color: 'var(--text-muted)' }}>
+            {filteredEvents.length} events in memory
+          </span>
+        </div>
 
-            <span style={{ color: '#5b7394', fontSize: 13 }}>|</span>
+        <div style={{ display: 'flex', alignItems: 'center', gap: '8px', flexWrap: 'wrap' }}>
+          <div className="filter-pill-group">
+            {(['all', 'critical', 'campaign', 'ingestion'] as const).map((mode) => (
+              <button
+                key={mode}
+                type="button"
+                className={`filter-pill ${filterType === mode ? 'is-active' : ''}`}
+                onClick={() => setFilterType(mode)}
+              >
+                {mode.toUpperCase()}
+              </button>
+            ))}
+          </div>
 
-            <span style={{ color: '#8fa2bd', fontSize: 12, fontFamily: '"JetBrains Mono", monospace' }}>
-              {events.length} events buffered
+          <button
+            type="button"
+            className={`btn btn-secondary btn-sm ${paused ? 'btn-primary' : ''}`}
+            onClick={() => setPaused((p) => !p)}
+          >
+            {paused ? '▶ Resume stream' : '⏸ Pause'}
+          </button>
+
+          <button
+            type="button"
+            className={`btn btn-secondary btn-sm ${soundEnabled ? 'btn-primary' : ''}`}
+            onClick={() => setSoundEnabled((s) => !s)}
+          >
+            {soundEnabled ? '🔊 Sound: On' : '🔇 Mute'}
+          </button>
+        </div>
+      </div>
+
+      {reportError && (
+        <RequestError
+          message={`Unable to load report history: ${reportError}`}
+          onRetry={() => setReloadKey((key) => key + 1)}
+        />
+      )}
+
+      <div className="feed-layout-grid">
+        <div className="data-table-wrap">
+          <table className="data-table">
+            <thead>
+              <tr>
+                <th style={{ width: '100px' }}>Age</th>
+                <th style={{ width: '120px' }}>Tenant Node</th>
+                <th style={{ width: '120px' }}>Event Type</th>
+                <th>Threat Summary</th>
+                <th style={{ width: '90px' }}>Severity</th>
+                <th style={{ width: '70px', textAlign: 'right' }}>Select</th>
+              </tr>
+            </thead>
+            <tbody>
+              {filteredEvents.length === 0 ? (
+                <tr>
+                  <td colSpan={6} style={{ textAlign: 'center', padding: '24px', color: 'var(--text-muted)' }}>
+                    {reportError ? 'Report history is unavailable.' : 'No events match the selected filter criteria.'}
+                  </td>
+                </tr>
+              ) : (
+                filteredEvents.map((evt) => {
+                  const isSelected = selectedEvent?.id === evt.id;
+                  return (
+                    <tr
+                      key={evt.id}
+                      onClick={() => setSelectedEvent(evt)}
+                      style={{
+                        cursor: 'pointer',
+                        background: isSelected ? 'var(--bg-surface-active)' : undefined
+                      }}
+                    >
+                      <td style={{ fontFamily: 'var(--font-mono)', fontSize: '11px', color: 'var(--text-muted)' }}>
+                        {evt.receivedAt ? formatRelativeTime(evt.receivedAt, currentTime) : '—'}
+                      </td>
+                      <td style={{ fontFamily: 'var(--font-mono)', fontSize: '11px', color: 'var(--accent)' }}>
+                        {evt.tenant_id || 'Tenant'}
+                      </td>
+                      <td style={{ fontSize: '11px', color: 'var(--text-secondary)' }}>
+                        {evt.event_type || 'Not provided'}
+                      </td>
+                      <td style={{ fontWeight: 500, color: 'var(--text-primary)' }}>
+                        {evt.title || 'Untitled event'}
+                      </td>
+                      <td>
+                        <span className={riskBadgeClass(evt.severity)}>
+                          {evt.severity || 'Not provided'}
+                        </span>
+                      </td>
+                      <td style={{ textAlign: 'right' }}>
+                        <button
+                          type="button"
+                          className="btn btn-ghost btn-sm"
+                          style={{ padding: '2px 6px', fontSize: '10px' }}
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            setSelectedEvent(evt);
+                          }}
+                        >
+                          {isSelected ? '● Viewing' : 'View'}
+                        </button>
+                      </td>
+                    </tr>
+                  );
+                })
+              )}
+            </tbody>
+          </table>
+        </div>
+
+        {/* Selected Event Inspector Drawer */}
+        <aside className="inspector-card" aria-label="Event inspector">
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+            <span style={{ fontSize: '10px', textTransform: 'uppercase', fontWeight: 700, color: 'var(--text-muted)' }}>
+              Event Inspector
             </span>
-
-            {paused && (
-              <span className="soc-badge high" style={{ fontSize: 10 }}>
-                FEED PAUSED
+            {selectedEvent?.severity && (
+              <span className={riskBadgeClass(selectedEvent.severity)}>
+                {selectedEvent.severity.toUpperCase()}
               </span>
             )}
           </div>
 
-          <div style={{ display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap' }}>
-            <div className="soc-pill-group">
-              {[
-                { id: 'all', label: 'All Events' },
-                { id: 'critical', label: 'Critical Threats' },
-                { id: 'campaign', label: 'Campaign Clusters' },
-                { id: 'ingestion', label: 'Ingestions' }
-              ].map((tab) => (
-                <button
-                  key={tab.id}
-                  type="button"
-                  className={`soc-pill-btn ${filterType === tab.id ? 'active' : ''}`}
-                  onClick={() => setFilterType(tab.id as typeof filterType)}
-                >
-                  {tab.label}
-                </button>
-              ))}
-            </div>
-
-            <button
-              type="button"
-              className={`soc-pill-btn ${paused ? 'active' : ''}`}
-              onClick={() => setPaused((v) => !v)}
-              title={paused ? 'Resume incoming events' : 'Pause stream to inspect'}
-            >
-              {paused ? '▶ Resume' : '⏸ Pause'}
-            </button>
-
-            <button
-              type="button"
-              className={`soc-pill-btn ${soundEnabled ? 'active' : ''}`}
-              onClick={() => {
-                setSoundEnabled((v) => !v);
-                if (!soundEnabled) playThreatBeep();
-              }}
-              title="Toggle audio alert for critical threats"
-            >
-              {soundEnabled ? '🔔 Alert ON' : '🔕 Alert OFF'}
-            </button>
-
-            <button
-              type="button"
-              className="soc-copy-btn"
-              onClick={() => setEvents([])}
-              title="Clear event buffer"
-            >
-              Clear
-            </button>
-          </div>
-        </div>
-
-        {/* Live Stream Panel */}
-        <div className="soc-card">
-          <div className="soc-card-header">
-            <div>
-              <h2>Incoming Event Stream</h2>
-              <p>Click on any threat signal to view its raw payload and correlation metadata</p>
-            </div>
-            <span className="soc-badge info">WebSocket 2.0 Ingestion</span>
-          </div>
-
-          <div className="soc-card-body" style={{ padding: 0 }}>
-            {filteredEvents.length === 0 ? (
-              <div style={{ padding: '60px 24px', textAlign: 'center', color: '#8fa2bd' }}>
-                <div style={{ fontSize: 24, marginBottom: 8 }}>📡</div>
-                <strong style={{ display: 'block', color: '#e5f0ff', marginBottom: 6 }}>
-                  No live threat events matching filter
-                </strong>
-                Waiting for incoming events across campus tenants…
+          {selectedEvent ? (
+            <>
+              <div>
+                <div style={{ fontWeight: 600, fontSize: '13px', color: 'var(--text-primary)' }}>
+                  {selectedEvent.title}
+                </div>
+                <div style={{ fontSize: '11px', color: 'var(--text-muted)', fontFamily: 'var(--font-mono)', marginTop: '4px' }}>
+                  Tenant: {selectedEvent.tenant_id || 'Not provided'} · Timestamp: {selectedEvent.timestamp || 'Not provided'}
+                </div>
               </div>
-            ) : (
-              <div style={{ display: 'flex', flexDirection: 'column' }}>
-                {filteredEvents.map((event) => {
-                  const sev = event.severity || 'high';
-                  const isSelected = selectedEvent?.id === event.id;
 
-                  return (
-                    <div
-                      key={event.id}
-                      onClick={() => setSelectedEvent(event)}
-                      style={{
-                        display: 'flex',
-                        alignItems: 'center',
-                        justifyContent: 'space-between',
-                        gap: 16,
-                        padding: '16px 24px',
-                        borderBottom: '1px solid #1a2a40',
-                        cursor: 'pointer',
-                        background: isSelected ? 'rgba(79, 142, 247, 0.08)' : 'transparent',
-                        transition: 'background 0.15s ease'
-                      }}
-                      onMouseEnter={(e) => {
-                        if (!isSelected) e.currentTarget.style.background = 'rgba(255, 255, 255, 0.025)';
-                      }}
-                      onMouseLeave={(e) => {
-                        if (!isSelected) e.currentTarget.style.background = 'transparent';
-                      }}
-                    >
-                      <div style={{ display: 'flex', alignItems: 'center', gap: 14, minWidth: 0 }}>
-                        <span
-                          style={{
-                            width: 8,
-                            height: 8,
-                            borderRadius: '50%',
-                            flexShrink: 0,
-                            background: sev === 'critical' ? '#ff6e6e' : sev === 'high' ? '#ffaa55' : '#73b8ff',
-                            boxShadow: sev === 'critical' ? '0 0 8px #ff6e6e' : 'none'
-                          }}
-                        />
-
-                        <div style={{ minWidth: 0 }}>
-                          <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
-                            <strong style={{ color: '#f1f5fb', fontSize: 14, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
-                              {event.title}
-                            </strong>
-                            <span className={`soc-badge ${sev}`}>{sev}</span>
-                            {event.campaign_id && (
-                              <span className="soc-badge info" style={{ fontSize: 10 }}>
-                                Cluster {event.campaign_id}
-                              </span>
-                            )}
-                          </div>
-
-                          <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginTop: 4, color: '#7a91ad', fontSize: 12 }}>
-                            <span>Tenant: <strong style={{ color: '#cbd7e6' }}>{event.tenant_id}</strong></span>
-                            <span>•</span>
-                            <span style={{ fontFamily: '"JetBrains Mono", monospace' }}>{event.event_type}</span>
-                            {event.risk_score != null && (
-                              <>
-                                <span>•</span>
-                                <span style={{ color: sev === 'critical' ? '#ff857f' : '#ffb977' }}>
-                                  Score: {event.risk_score}/70
-                                </span>
-                              </>
-                            )}
-                          </div>
-                        </div>
-                      </div>
-
-                      <div style={{ display: 'flex', alignItems: 'center', gap: 12, flexShrink: 0 }}>
-                        <span style={{ color: '#687e9c', fontSize: 11, fontFamily: '"JetBrains Mono", monospace' }}>
-                          {formatRelativeTime(event.receivedAt, currentTime)}
-                        </span>
-                        <span style={{ color: '#5599ff', fontSize: 12, fontWeight: 700 }}>Inspect →</span>
-                      </div>
-                    </div>
-                  );
-                })}
-              </div>
-            )}
-          </div>
-        </div>
-
-        {/* Slide-over Event Drawer */}
-        {selectedEvent && (
-          <div className="soc-drawer-backdrop" onClick={() => setSelectedEvent(null)}>
-            <div className="soc-drawer" onClick={(e) => e.stopPropagation()}>
-              <div
-                style={{
-                  padding: '20px 24px',
-                  borderBottom: '1px solid #1e2f47',
-                  display: 'flex',
-                  justifyContent: 'space-between',
-                  alignItems: 'center',
-                  background: '#090e18'
-                }}
-              >
+              {selectedEvent.data && (
                 <div>
-                  <span className="soc-badge info" style={{ marginBottom: 4 }}>
-                    {selectedEvent.event_type}
+                  <span style={{ fontSize: '10px', textTransform: 'uppercase', fontWeight: 700, color: 'var(--text-muted)' }}>
+                    Raw Telemetry Payload
                   </span>
-                  <h3 style={{ margin: '6px 0 0', color: '#f1f5fb', fontSize: 16 }}>
-                    Threat Signal Inspection
-                  </h3>
+                  <pre>{JSON.stringify(selectedEvent.data, null, 2)}</pre>
                 </div>
-                <button
-                  type="button"
-                  className="soc-copy-btn"
-                  onClick={() => setSelectedEvent(null)}
-                  style={{ padding: '6px 12px', fontSize: 14 }}
+              )}
+
+              {selectedEvent.data?.report_id && (
+                <Link
+                  href={`/reports/${encodeURIComponent(String(selectedEvent.data.report_id))}`}
+                  className="btn btn-primary btn-sm"
+                  style={{ width: '100%' }}
                 >
-                  ✕
-                </button>
-              </div>
-
-              <div style={{ padding: 24, overflowY: 'auto', flex: 1, display: 'flex', flexDirection: 'column', gap: 18 }}>
-                <div>
-                  <small style={{ color: '#7a91ad', textTransform: 'uppercase', fontSize: 10, fontWeight: 700, letterSpacing: 0.8 }}>
-                    Event Title
-                  </small>
-                  <div style={{ color: '#f1f5fb', fontSize: 15, fontWeight: 700, marginTop: 4 }}>
-                    {selectedEvent.title}
-                  </div>
-                </div>
-
-                <div style={{ display: 'grid', gridTemplateColumns: 'repeat(2, 1fr)', gap: 12 }}>
-                  <div className="soc-card" style={{ padding: 14, background: '#090e18' }}>
-                    <small style={{ color: '#7a91ad', fontSize: 10, textTransform: 'uppercase' }}>Severity</small>
-                    <div style={{ marginTop: 4 }}>
-                      <span className={`soc-badge ${selectedEvent.severity || 'high'}`}>
-                        {selectedEvent.severity || 'high'}
-                      </span>
-                    </div>
-                  </div>
-
-                  <div className="soc-card" style={{ padding: 14, background: '#090e18' }}>
-                    <small style={{ color: '#7a91ad', fontSize: 10, textTransform: 'uppercase' }}>Risk Score</small>
-                    <div style={{ color: '#f1f5fb', fontSize: 16, fontWeight: 800, marginTop: 4, fontFamily: '"JetBrains Mono", monospace' }}>
-                      {selectedEvent.risk_score ?? 'N/A'} / 70
-                    </div>
-                  </div>
-
-                  <div className="soc-card" style={{ padding: 14, background: '#090e18' }}>
-                    <small style={{ color: '#7a91ad', fontSize: 10, textTransform: 'uppercase' }}>Source Tenant</small>
-                    <div style={{ color: '#cbd7e6', fontSize: 13, fontWeight: 600, marginTop: 4 }}>
-                      {selectedEvent.tenant_id}
-                    </div>
-                  </div>
-
-                  <div className="soc-card" style={{ padding: 14, background: '#090e18' }}>
-                    <small style={{ color: '#7a91ad', fontSize: 10, textTransform: 'uppercase' }}>Recorded At</small>
-                    <div style={{ color: '#cbd7e6', fontSize: 12, marginTop: 4, fontFamily: '"JetBrains Mono", monospace' }}>
-                      {selectedEvent.timestamp ? selectedEvent.timestamp.slice(0, 19).replace('T', ' ') : 'N/A'}
-                    </div>
-                  </div>
-                </div>
-
-                {selectedEvent.campaign_id && (
-                  <div style={{ padding: 16, background: 'rgba(79, 142, 247, 0.1)', border: '1px solid rgba(79, 142, 247, 0.3)', borderRadius: 10 }}>
-                    <strong style={{ color: '#8eccff', display: 'block', fontSize: 13 }}>
-                      Correlated Active Campaign
-                    </strong>
-                    <p style={{ color: '#cbd7e6', fontSize: 12, margin: '4px 0 10px' }}>
-                      This indicator matches cross-tenant campaign cluster: {selectedEvent.campaign_id}
-                    </p>
-                    <Link
-                      href={`/campaigns/${encodeURIComponent(selectedEvent.campaign_id)}`}
-                      className="btn-primary"
-                      style={{ padding: '6px 12px', fontSize: 12 }}
-                    >
-                      View Campaign Cluster Evidence →
-                    </Link>
-                  </div>
-                )}
-
-                <div>
-                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 8 }}>
-                    <small style={{ color: '#7a91ad', textTransform: 'uppercase', fontSize: 10, fontWeight: 700, letterSpacing: 0.8 }}>
-                      Raw JSON Telemetry
-                    </small>
-                    <button
-                      type="button"
-                      className="soc-copy-btn"
-                      onClick={() => {
-                        navigator.clipboard.writeText(JSON.stringify(selectedEvent.data, null, 2));
-                      }}
-                    >
-                      Copy JSON
-                    </button>
-                  </div>
-                  <pre
-                    style={{
-                      background: '#070b12',
-                      border: '1px solid #1e2f47',
-                      borderRadius: 8,
-                      padding: 14,
-                      color: '#a5b9d4',
-                      fontSize: 12,
-                      fontFamily: '"JetBrains Mono", Consolas, monospace',
-                      overflowX: 'auto',
-                      maxHeight: 280,
-                      margin: 0
-                    }}
-                  >
-                    {JSON.stringify(selectedEvent.data || selectedEvent, null, 2)}
-                  </pre>
-                </div>
-              </div>
+                  Open Full Forensic Report Dossier →
+                </Link>
+              )}
+            </>
+          ) : (
+            <div style={{ color: 'var(--text-muted)', fontSize: '12px', padding: '16px 0' }}>
+              Select an event row from the stream table to inspect its raw JSON payload and IOC telemetry.
             </div>
-          </div>
-        )}
+          )}
+        </aside>
       </div>
     </AppShell>
   );

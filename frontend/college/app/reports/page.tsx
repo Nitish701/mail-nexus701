@@ -1,15 +1,30 @@
+import Link from 'next/link';
 import { AppShell } from '../../components/AppShell';
 import { fetchCollegeReports } from '../../lib/api';
 import { ReportAccordion } from '../../components/ReportAccordion';
 
-const navItems = [{ label: 'Dashboard', href: '/' }, { label: 'Emails', href: '/emails' }, { label: 'Threats', href: '/threats' }, { label: 'Campaigns', href: '/campaigns' }, { label: 'Reports', href: '/reports' }];
-
 export default async function CollegeReportsPage() {
   const reports = await fetchCollegeReports();
-  return <AppShell title="Investigation reports" subtitle="Structured intelligence" navItems={navItems}>
-    <section className="data-section">
-      <div className="section-heading"><div><h2>College reports</h2><div className="muted">Open a report to review the evidence collected by the live pipeline.</div></div></div>
-      {reports.length === 0 ? <p className="muted">No reports are available for this college.</p> : <ReportAccordion reports={reports} />}
-    </section>
-  </AppShell>;
+
+  return (
+    <AppShell title="Forensic Reports" subtitle="Structured email scan dossiers">
+      <section className="data-section">
+        <div className="section-header">
+          <div className="section-title-wrap">
+            <h2 className="section-title">Institutional Investigation Reports ({reports.length})</h2>
+            <span className="section-desc">Click any report to expand findings, forensic advisory, and authentication signals.</span>
+          </div>
+          <Link href="/" className="btn btn-ghost btn-sm">
+            ← Back to dashboard
+          </Link>
+        </div>
+
+        {reports.length === 0 ? (
+          <div className="empty-state">No investigation reports are currently logged for this college.</div>
+        ) : (
+          <ReportAccordion reports={reports} />
+        )}
+      </section>
+    </AppShell>
+  );
 }

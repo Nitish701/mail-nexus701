@@ -16,7 +16,7 @@ export function ViewToggle({
         className={value === 'list' ? 'is-active' : ''}
         onClick={() => onChange('list')}
       >
-        List
+        List view
       </button>
       <button
         type="button"
@@ -25,7 +25,7 @@ export function ViewToggle({
         className={value === 'graph' ? 'is-active' : ''}
         onClick={() => onChange('graph')}
       >
-        Graph
+        Relationship graph
       </button>
     </div>
   );

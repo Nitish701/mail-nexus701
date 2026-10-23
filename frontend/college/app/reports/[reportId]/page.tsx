@@ -2,88 +2,246 @@ import Link from 'next/link';
 import { AppShell } from '../../../components/AppShell';
 import { fetchCollegeReportDetails } from '../../../lib/api';
 
-const navItems = [
-  { label: 'Dashboard', href: '/' },
-  { label: 'Emails', href: '/emails' },
-  { label: 'Threats', href: '/threats' },
-  { label: 'Campaigns', href: '/campaigns' },
-  { label: 'Reports', href: '/reports' }
-];
+const API_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000';
+
+function riskBadgeClass(severity: string) {
+  const s = severity.toLowerCase();
+  switch (s) {
+    case 'critical': return 'badge badge-critical';
+    case 'high': return 'badge badge-high';
+    case 'medium': return 'badge badge-medium';
+    case 'review': return 'badge badge-review';
+    default: return 'badge badge-review';
+  }
+}
 
 function displayValue(value: unknown): string {
   if (value == null || value === '') return 'Not available';
   if (Array.isArray(value)) return value.length ? value.map(displayValue).join(', ') : 'None';
   if (typeof value === 'object') {
-    const entries = Object.entries(value as Record<string, unknown>).filter(([, item]) => item != null && item !== '');
-    return entries.length ? entries.map(([key, item]) => `${key}: ${displayValue(item)}`).join(' · ') : 'Not available';
+    const entries = Object.entries(value as Record<string, unknown>).filter(
+      ([, item]) => item != null && item !== ''
+    );
+    return entries.length
+      ? entries.map(([key, item]) => `${key}: ${displayValue(item)}`).join(' · ')
+      : 'Not available';
   }
   return String(value);
 }
 
-function ReportSection({ title, children }: { title: string; children: React.ReactNode }) {
-  return <section className="report-detail-section"><h2>{title}</h2>{children}</section>;
-}
-
-export default async function CollegeReportDetailPage({ params }: { params: { reportId: string } }) {
-  const report = await fetchCollegeReportDetails(params.reportId);
+export default async function CollegeReportDetailPage({
+  params
+}: {
+  params: Promise<{ reportId: string }>;
+}) {
+  const { reportId } = await params;
+  const report = await fetchCollegeReportDetails(reportId);
   const message = report?.message as Record<string, unknown> | undefined;
   const risk = report?.risk as Record<string, unknown> | undefined;
   const advisory = report?.advisory as Record<string, unknown> | undefined;
+  const severity = String(risk?.disposition || report?.severity || 'Not provided');
 
   return (
-    <AppShell title="Email investigation" subtitle="Verified scan evidence" navItems={navItems}>
-      <p><Link className="dashboard-action-link" href="/">← Back to dashboard</Link></p>
+    <AppShell title="Forensic Dossier" subtitle={reportId}>
+      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '4px' }}>
+        <Link href="/reports" className="btn btn-ghost btn-sm" style={{ paddingLeft: 0 }}>
+          ← Back to report directory
+        </Link>
+        <div style={{ display: 'flex', gap: 6 }}>
+          <a
+            href={`${API_URL}/api/reports/${encodeURIComponent(reportId)}?format=json`}
+            target="_blank"
+            rel="noreferrer"
+            className="btn btn-secondary btn-sm"
+          >
+            JSON
+          </a>
+          <a
+            href={`${API_URL}/api/reports/${encodeURIComponent(reportId)}?format=csv`}
+            target="_blank"
+            rel="noreferrer"
+            className="btn btn-secondary btn-sm"
+          >
+            CSV
+          </a>
+          <a
+            href={`${API_URL}/api/reports/${encodeURIComponent(reportId)}?format=markdown`}
+            target="_blank"
+            rel="noreferrer"
+            className="btn btn-secondary btn-sm"
+          >
+            Markdown
+          </a>
+        </div>
+      </div>
+
       {!report ? (
-        <section className="data-section"><p className="muted">This report is unavailable or you do not have access to it.</p></section>
+        <section className="data-section">
+          <div className="empty-state">
+            Report {reportId} could not be located or access is restricted for this tenant node.
+          </div>
+        </section>
       ) : (
         <>
-          <section className="workspace-intro">
-            <div>
-              <div className="eyebrow">Email threat report</div>
-              <h2>{String(report.title || params.reportId)}</h2>
-              <p>{params.reportId}</p>
+          {/* Header Metric Strip */}
+          <section className="stat-grid">
+            <div className={`stat-card tone-${severity.toLowerCase()}`}>
+              <span className="stat-card-label">Threat Severity</span>
+              <div style={{ marginTop: '4px' }}>
+                <span className={riskBadgeClass(severity)} style={{ fontSize: '12px', padding: '4px 8px' }}>
+                  {severity.toUpperCase()}
+                </span>
+              </div>
+              <span className="stat-card-detail">Classifier Disposition</span>
             </div>
-            <span className={`badge badge-${String(risk?.disposition || report.severity || 'low').toLowerCase()}`}>
-              {String(risk?.disposition || report.severity || 'unknown')}
-            </span>
+
+            <div className="stat-card">
+              <span className="stat-card-label">Risk Score</span>
+              <div className="stat-card-value">
+                {displayValue(risk?.base_score)}
+                <span style={{ fontSize: '13px', color: 'var(--text-muted)', fontWeight: 400 }}>
+                  {' '}/ {displayValue(risk?.max_score)}
+                </span>
+              </div>
+              <span className="stat-card-detail">Calculated multi-layer score</span>
+            </div>
+
+            <div className="stat-card">
+              <span className="stat-card-label">Origin Sender</span>
+              <div
+                style={{
+                  fontSize: '13px',
+                  fontWeight: 600,
+                  fontFamily: 'var(--font-mono)',
+                  color: 'var(--text-primary)',
+                  marginTop: '4px',
+                  overflow: 'hidden',
+                  textOverflow: 'ellipsis',
+                  whiteSpace: 'nowrap'
+                }}
+              >
+                {displayValue(message?.from)}
+              </div>
+              <span className="stat-card-detail">Header From Address</span>
+            </div>
+
+            <div className="stat-card">
+              <span className="stat-card-label">Ingestion Timestamp</span>
+              <div
+                style={{
+                  fontSize: '12px',
+                  fontFamily: 'var(--font-mono)',
+                  color: 'var(--text-primary)',
+                  marginTop: '6px'
+                }}
+              >
+                {displayValue(report.created_at || report.generated_at)}
+              </div>
+              <span className="stat-card-detail">Local RFC822 ingest time</span>
+            </div>
           </section>
 
-          <div className="stat-grid">
-            <div className="stat-card"><label>Combined risk</label><strong>{displayValue(risk?.base_score)} / {displayValue(risk?.max_score)}</strong></div>
-            <div className="stat-card"><label>Sender</label><strong style={{ fontSize: 16 }}>{displayValue(message?.from)}</strong></div>
-            <div className="stat-card"><label>Received</label><strong style={{ fontSize: 16 }}>{displayValue(report.created_at || report.generated_at)}</strong></div>
-          </div>
+          {/* Forensic Details Grid */}
+          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(340px, 1fr))', gap: '12px' }}>
+            {/* Envelope & Message Metadata */}
+            <div className="data-section">
+              <div className="section-title-wrap">
+                <h3 className="section-title">Message Envelope</h3>
+                <span className="section-desc">Extracted headers from inbound RFC822 transport stream</span>
+              </div>
+              <div className="report-code-block">
+                <strong>Subject:</strong> {displayValue(message?.subject)}
+                {'\n'}<strong>Recipients:</strong> {displayValue(message?.to)}
+                {'\n'}<strong>Message ID:</strong> {displayValue(message?.message_id)}
+                {'\n'}<strong>Report ID:</strong> {reportId}
+              </div>
+            </div>
 
-          <div className="report-detail-sections">
-            <ReportSection title="Message">
-              <div className="report-detail-grid">
-                <div><label>Subject</label><strong>{displayValue(message?.subject)}</strong></div>
-                <div><label>Recipients</label><strong>{displayValue(message?.to)}</strong></div>
-                <div><label>Message ID</label><strong>{displayValue(message?.message_id)}</strong></div>
+            {/* Authentication Analysis */}
+            <div className="data-section">
+              <div className="section-title-wrap">
+                <h3 className="section-title">Authentication Checks</h3>
+                <span className="section-desc">SPF, DKIM, DMARC, and sender domain alignment layer</span>
               </div>
-            </ReportSection>
-            <ReportSection title="Why it was flagged">
-              <div className="report-detail-copy">{displayValue(report.findings)}</div>
-            </ReportSection>
-            <ReportSection title="Authentication checks">
-              <div className="report-detail-copy">{displayValue(report.authentication)}</div>
-            </ReportSection>
-            <ReportSection title="URLs and attachments">
-              <div className="report-detail-copy">
-                URLs: {displayValue(report.urls)}
-                {'\n'}
-                Attachments: {displayValue(report.attachments)}
+              <div className="report-code-block">
+                {displayValue(report.authentication)}
               </div>
-            </ReportSection>
-            <ReportSection title="Plain-language forensic report">
-              <div className="muted" style={{ marginBottom: 8 }}>
-                AI explanation: {displayValue(advisory?.ai_status).replace(/_/g, ' ')}
+            </div>
+
+            {/* Why Flagged / Findings */}
+            <div className="data-section" style={{ gridColumn: '1 / -1' }}>
+              <div className="section-title-wrap">
+                <h3 className="section-title">Why This Message Was Flagged</h3>
+                <span className="section-desc">Specific heuristic, YARA, ML, and threat intelligence trigger rules</span>
               </div>
-              <div className="report-detail-copy">{displayValue(advisory?.detailed_report)}</div>
-            </ReportSection>
-            <ReportSection title="Recommended next steps">
-              <div className="report-detail-copy">{displayValue(advisory?.recommended_actions)}</div>
-            </ReportSection>
+              <div className="report-code-block" style={{ color: 'var(--risk-high)' }}>
+                {displayValue(report.findings)}
+              </div>
+            </div>
+
+            {/* URLs & Attachments */}
+            <div className="data-section">
+              <div className="section-title-wrap">
+                <h3 className="section-title">URLs & Embedded Hyperlinks</h3>
+                <span className="section-desc">Extracted destinations subjected to reputation checks</span>
+              </div>
+              <div className="report-code-block">
+                {displayValue(report.urls)}
+              </div>
+            </div>
+
+            <div className="data-section">
+              <div className="section-title-wrap">
+                <h3 className="section-title">Attachments & Payloads</h3>
+                <span className="section-desc">MIME attachments, file hashes, and YARA signatures</span>
+              </div>
+              <div className="report-code-block">
+                {displayValue(report.attachments)}
+              </div>
+            </div>
+
+            {/* Plain-Language Forensic Report */}
+            <div className="data-section" style={{ gridColumn: '1 / -1' }}>
+              <div className="section-header">
+                <div className="section-title-wrap">
+                  <h3 className="section-title">Forensic Assessment & Incident Narrative</h3>
+                  <span className="section-desc">Deterministic analysis synthesis for SOC operators</span>
+                </div>
+                {advisory?.ai_status && (
+                  <span className="badge badge-neutral">
+                    {displayValue(advisory.ai_status).replace(/_/g, ' ')}
+                  </span>
+                )}
+              </div>
+              <div
+                className="report-code-block"
+                style={{
+                  background: 'var(--bg-canvas)',
+                  lineHeight: '1.6',
+                  color: 'var(--text-primary)',
+                  fontSize: '12px'
+                }}
+              >
+                {displayValue(advisory?.detailed_report || advisory?.summary || 'No advisory summary returned.')}
+              </div>
+            </div>
+
+            {/* Recommended Action */}
+            <div className="data-section" style={{ gridColumn: '1 / -1' }}>
+              <div className="section-title-wrap">
+                <h3 className="section-title">Recommended SOC Actions</h3>
+                <span className="section-desc">Standard operating procedures for campus threat remediation</span>
+              </div>
+              <div
+                className="report-code-block"
+                style={{
+                  borderLeft: '3px solid var(--accent)',
+                  color: 'var(--text-primary)'
+                }}
+              >
+                {displayValue(advisory?.recommended_actions || 'Quarantine email from mailboxes and add sender domain/IP to campus firewall blocklist.')}
+              </div>
+            </div>
           </div>
         </>
       )}

@@ -68,7 +68,7 @@ class TestParserRecipients(unittest.TestCase):
         parsed = parse_mime(raw)
         self.assertEqual(parsed.to_addresses, ["to1@example.com", "to1@example.com"])
 
-    def test_forwarded_for_header_extracts_public_ip(self):
+    def test_untrusted_forwarded_for_header_is_ignored(self):
         raw = (
             b"From: sender@example.com\n"
             b"To: recipient@example.com\n"
@@ -77,8 +77,8 @@ class TestParserRecipients(unittest.TestCase):
             b"Body"
         )
         parsed = parse_mime(raw)
-        self.assertEqual(parsed.source_ip, "8.8.8.8")
-        self.assertEqual(parsed.private_relay_ips, ["192.168.1.2"])
+        self.assertIsNone(parsed.source_ip)
+        self.assertEqual(parsed.private_relay_ips, [])
 
 if __name__ == "__main__":
     unittest.main()

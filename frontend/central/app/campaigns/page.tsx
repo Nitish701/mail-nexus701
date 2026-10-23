@@ -3,14 +3,14 @@
 import Link from 'next/link';
 import { useEffect, useState } from 'react';
 import { AppShell } from '../../components/AppShell';
+import { RequestError } from '../../components/RequestError';
 import { CampaignGraph } from '../../components/CampaignGraph';
 import { ViewToggle } from '../../components/ViewToggle';
+import { fetchCentralCampaigns } from '../../lib/api';
 import { CENTRAL_NAV } from '../../lib/nav';
 
-const API_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000';
-
 function formatDisplayDate(value: unknown) {
-  if (!value || String(value) === '—') return 'Not yet identified';
+  if (!value || String(value) === '—') return 'Time unavailable';
   const raw = String(value);
   if (raw.includes('T')) return raw.replace('T', ' ').slice(0, 16);
   return raw;
@@ -20,37 +20,14 @@ function getTopMatchReason(members: Array<Record<string, unknown>>) {
   const counts = new Map<string, number>();
   members.forEach((member) => {
     const reasons = Array.isArray(member.match_reasons)
-      ? member.match_reasons.filter((reason): reason is string => typeof reason === 'string' && reason.trim().length > 0)
+      ? member.match_reasons.filter(
+          (reason): reason is string => typeof reason === 'string' && reason.trim().length > 0
+        )
       : [];
     new Set(reasons).forEach((reason) => counts.set(reason, (counts.get(reason) || 0) + 1));
   });
   const topReason = [...counts.entries()].sort((a, b) => b[1] - a[1])[0]?.[0];
-  return topReason || 'No match reason returned';
-}
-
-function getCampaignNarrative(campaign: Record<string, unknown>, members: Array<Record<string, unknown>>) {
-  const tenantCount = Number(campaign.tenant_count || new Set(members.map((member) => String(member.tenant_id || 'unknown'))).size || 0);
-  const messageCount = Number(campaign.email_count || members.length || 0);
-
-  if (campaign.summary && String(campaign.summary).trim()) {
-    return String(campaign.summary);
-  }
-
-  if (!members.length) {
-    return 'No member evidence was returned for this campaign.';
-  }
-
-  return `This campaign groups ${messageCount} related messages across ${tenantCount} organizations. Review the member evidence to see which returned indicators link them.`;
-}
-
-async function loadCampaigns() {
-  try {
-    const res = await fetch(`${API_URL}/api/developer2/campaigns`, { cache: 'no-store' });
-    if (!res.ok) return [] as Array<Record<string, unknown>>;
-    return (await res.json()) as Array<Record<string, unknown>>;
-  } catch {
-    return [] as Array<Record<string, unknown>>;
-  }
+  return topReason || 'No match reason recorded';
 }
 
 export default function CampaignsPage() {
@@ -58,20 +35,30 @@ export default function CampaignsPage() {
   const [campaigns, setCampaigns] = useState<Array<Record<string, unknown>>>([]);
   const [loading, setLoading] = useState(true);
   const [searchQuery, setSearchQuery] = useState('');
+  const [requestError, setRequestError] = useState('');
+  const [reloadKey, setReloadKey] = useState(0);
 
   useEffect(() => {
     let cancelled = false;
+    setLoading(true);
+    setRequestError('');
     (async () => {
-      const data = await loadCampaigns();
-      if (!cancelled) {
-        setCampaigns(data);
-        setLoading(false);
+      try {
+        const data = await fetchCentralCampaigns();
+        if (!cancelled) setCampaigns(data);
+      } catch (error) {
+        if (!cancelled) {
+          setCampaigns([]);
+          setRequestError(error instanceof Error ? error.message : 'Unable to load campaigns.');
+        }
+      } finally {
+        if (!cancelled) setLoading(false);
       }
     })();
     return () => {
       cancelled = true;
     };
-  }, []);
+  }, [reloadKey]);
 
   const filteredCampaigns = campaigns.filter((c) => {
     if (!searchQuery.trim()) return true;
@@ -84,116 +71,120 @@ export default function CampaignsPage() {
 
   return (
     <AppShell
-      title="Campaign center"
-      subtitle="Clearly grouped phishing activity across tenant organizations"
+      title="Campaign Center"
+      subtitle="Federated cross-campus phishing clusters"
       navItems={[...CENTRAL_NAV]}
       actions={<ViewToggle value={view} onChange={setView} />}
     >
-      {loading ? (
-        <div className="art-empty-state">Loading campaigns…</div>
-      ) : view === 'graph' ? (
-        <CampaignGraph campaigns={campaigns} />
-      ) : campaigns.length === 0 ? (
-        <div className="art-empty-state">
-          No campaigns detected yet. When similar phishing emails or malicious infrastructure appear in
-          multiple tenants, they will appear here as a single campaign.
+      <header className="page-intro">
+        <div>
+          <h1>Threat campaigns</h1>
+          <p>Inspect campaign records and correlations returned by the backend.</p>
         </div>
+      </header>
+      {requestError && (
+        <RequestError
+          message={`Unable to load campaigns: ${requestError}`}
+          onRetry={() => setReloadKey((key) => key + 1)}
+        />
+      )}
+      {/* Top Filter and Search Strip */}
+      <div className="section-header">
+        <div className="section-title-wrap">
+          <h2 className="section-title">Active Threat Campaigns ({campaigns.length})</h2>
+          <span className="section-desc">Correlated using Locality Sensitive Hashing (TLSH) and sender infrastructure signals.</span>
+        </div>
+
+        <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+          <input
+            type="text"
+            className="topbar-search-input"
+            style={{ width: '220px' }}
+            placeholder="Filter by campaign ID or keyword..."
+            value={searchQuery}
+            onChange={(e) => setSearchQuery(e.target.value)}
+          />
+        </div>
+      </div>
+
+      {loading ? (
+        <div className="empty-state">Loading correlated campaigns from database...</div>
+      ) : view === 'graph' ? (
+        <div className="data-section">
+          <CampaignGraph campaigns={campaigns} />
+        </div>
+      ) : requestError ? null : campaigns.length === 0 ? (
+        <div className="empty-state">
+          No campaigns detected yet. When similar phishing emails or malicious infrastructure appear in
+          multiple campuses, they will cluster here.
+        </div>
+      ) : filteredCampaigns.length === 0 ? (
+        <div className="empty-state">No campaigns match your search.</div>
       ) : (
-        <>
-          <section className="page-toolbar" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: 14 }}>
-            <div>
-              <div className="soc-kicker">Correlation engine</div>
-              <h2 className="page-section-title">{campaigns.length} active campaign clusters</h2>
-            </div>
-            <div style={{ display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap' }}>
-              <div className="soc-search-wrapper" style={{ maxWidth: 260 }}>
-                <span className="soc-search-icon">
-                  <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2">
-                    <circle cx="11" cy="11" r="8" />
-                    <path d="m21 21-4.3-4.3" />
-                  </svg>
-                </span>
-                <input
-                  type="text"
-                  className="soc-search-input"
-                  placeholder="Search campaign ID or pattern..."
-                  value={searchQuery}
-                  onChange={(e) => setSearchQuery(e.target.value)}
-                  style={{ padding: '7px 12px 7px 32px', fontSize: 12 }}
-                />
-              </div>
-              <button type="button" className="btn-ghost" onClick={() => setView('graph')}>
-                View relationship graph →
-              </button>
-            </div>
-          </section>
+        <div className="campaign-grid">
+          {filteredCampaigns.map((campaign) => {
+            const members = Array.isArray(campaign.members)
+              ? (campaign.members as Array<Record<string, unknown>>)
+              : [];
+            const campaignId = String(campaign.campaign_id || 'unknown');
+            const similarities = members
+              .map((member) => member.similarity)
+              .filter((value): value is number => typeof value === 'number' && Number.isFinite(value));
+            const avgSim = similarities.length
+              ? `${Math.round((similarities.reduce((total, value) => total + value, 0) / similarities.length) * 100)}%`
+              : '—';
+            const tenants = new Set(members.map((m) => m.tenant_id).filter((tenant) => tenant !== null && tenant !== undefined).map(String));
+            const topMatchReason = getTopMatchReason(members);
 
-          <div className="campaign-list">
-            {filteredCampaigns.map((campaign) => {
-              const members = Array.isArray(campaign.members)
-                ? (campaign.members as Array<Record<string, unknown>>)
-                : [];
-              const campaignId = String(campaign.campaign_id || 'unknown');
-              const similarities = members
-                .map((member) => member.similarity)
-                .filter((value): value is number => typeof value === 'number' && Number.isFinite(value));
-              const avgSim = similarities.length
-                ? Math.round((similarities.reduce((total, value) => total + value, 0) / similarities.length) * 100)
-                : null;
-              const tenants = new Set(
-                members.map((m) => String(m.tenant_id || 'unknown'))
-              );
-              const narrative = getCampaignNarrative(campaign, members);
-              const topMatchReason = getTopMatchReason(members);
+            return (
+              <article key={campaignId} className="campaign-dense-card">
+                <div className="campaign-card-head">
+                  <div>
+                    <div className="campaign-id-title">{campaignId}</div>
+                    <small style={{ color: 'var(--text-muted)', fontSize: '10px' }}>
+                      Seen {formatDisplayDate(campaign.last_seen || campaign.first_seen)}
+                    </small>
+                  </div>
+                  <span className="badge badge-high">
+                    {String(campaign.status || 'Not provided').toUpperCase()}
+                  </span>
+                </div>
 
-              return (
-                <Link
-                  key={campaignId}
-                  href={`/campaigns/${encodeURIComponent(campaignId)}`}
-                  className="campaign-list-card"
-                >
-                  <div className="campaign-list-head">
-                    <div>
-                      <div className="campaign-list-kicker">Campaign</div>
-                      <div className="campaign-list-id">{campaignId}</div>
-                    </div>
-                    <span className="campaign-status">{String(campaign.status || 'Unknown')}</span>
+                <div className="campaign-meta-metrics">
+                  <div className="campaign-metric-item">
+                    <small>Messages</small>
+                    <strong>{Number(campaign.email_count ?? members.length)}</strong>
                   </div>
-                  <div className="campaign-list-stats" style={{ gridTemplateColumns: 'repeat(auto-fit, minmax(130px, 1fr))' }}>
-                    <div>
-                      <strong>{Number(campaign.email_count || members.length)}</strong>
-                      <span>Related emails</span>
-                    </div>
-                    <div>
-                      <strong>{Number(campaign.tenant_count || tenants.size)}</strong>
-                      <span>Affected orgs</span>
-                    </div>
-                    <div>
-                      <strong>{avgSim === null ? 'N/A' : `${avgSim}%`}</strong>
-                      <span>Pattern match</span>
-                    </div>
-                    <div>
-                      <strong>{formatDisplayDate(campaign.first_seen || campaign.created_at || '—')}</strong>
-                      <span>First detected</span>
-                    </div>
-                    <div>
-                      <strong>{formatDisplayDate(campaign.last_seen || '—')}</strong>
-                      <span>Last seen</span>
-                    </div>
+                  <div className="campaign-metric-item">
+                    <small>Campuses</small>
+                    <strong>{typeof campaign.tenant_count === 'number' ? campaign.tenant_count : tenants.size || '—'}</strong>
                   </div>
-                  <div className="campaign-list-summary">
-                    <span>Top match reason</span>
-                    {topMatchReason}
+                  <div className="campaign-metric-item">
+                    <small>Similarity</small>
+                    <strong>{avgSim}</strong>
                   </div>
-                  <div className="campaign-list-summary">
-                    <span>What it looks like</span>
-                    {narrative}
-                  </div>
-                </Link>
-              );
-            })}
-          </div>
-        </>
+                </div>
+
+                <div className="campaign-match-signals">
+                  <span className="signal-tag">{topMatchReason}</span>
+                  <span className="signal-tag">{members.length} Correlated Nodes</span>
+                </div>
+
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', paddingTop: '4px' }}>
+                  <span style={{ fontSize: '11px', color: 'var(--text-muted)' }}>
+                    First: {formatDisplayDate(campaign.first_seen)}
+                  </span>
+                  <Link
+                    href={`/campaigns/${encodeURIComponent(campaignId)}`}
+                    className="action-link"
+                  >
+                    Forensic evidence →
+                  </Link>
+                </div>
+              </article>
+            );
+          })}
+        </div>
       )}
     </AppShell>
   );

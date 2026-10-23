@@ -11,24 +11,15 @@ type CampaignMember = {
   sender_domain?: string;
   observed_at?: string;
   match_reasons?: string[];
+  subject?: string;
+  message_id?: string;
 };
 
 function formatDetailDate(value: unknown) {
-  if (!value || String(value) === 'Unknown') return 'Not yet identified';
+  if (!value || String(value) === 'Unknown') return 'Time unavailable';
   const raw = String(value);
   if (raw.includes('T')) return raw.replace('T', ' ').slice(0, 16);
   return raw;
-}
-
-function getPlainEnglishSummary(campaign: Record<string, unknown>, members: CampaignMember[]) {
-  if (campaign.summary && String(campaign.summary).trim()) {
-    return String(campaign.summary);
-  }
-
-  const tenantCount = Number(campaign.tenant_count || new Set(members.map((member) => String(member.tenant_id || 'Unknown'))).size || 0);
-  const messageCount = Number(campaign.email_count || members.length || 0);
-
-  return `This campaign includes ${tenantCount} organizations and ${messageCount} related messages. Review the returned match reasons and member evidence below.`;
 }
 
 function getMemberReasons(member: CampaignMember) {
@@ -52,187 +43,175 @@ function uniqueValues(members: CampaignMember[], key: 'source_ip' | 'sender_doma
   return [...counts.entries()].map(([value, count]) => ({ value, count }));
 }
 
-export default async function CampaignDetailPage({ params }: { params: Promise<{ campaignId: string }> }) {
+export default async function CampaignDetailPage({
+  params
+}: {
+  params: Promise<{ campaignId: string }>;
+}) {
   const { campaignId } = await params;
   const campaign = await fetchCentralCampaignDetail(campaignId);
 
   if (!campaign) {
     return (
-      <AppShell title="Campaign detail" subtitle="No campaign found" navItems={[...CENTRAL_NAV]}>
-        <section style={{ background: '#111827', border: '1px solid #243b5b', padding: 24, borderRadius: 16 }}>
-          <h2 style={{ margin: 0 }}>Campaign not available</h2>
-          <p style={{ color: '#9fb5d8', marginTop: 12 }}>No campaign record exists for this identifier yet.</p>
-          <Link href="/campaigns" style={{ color: '#8ec5ff', fontWeight: 700 }}>Return to campaigns</Link>
+      <AppShell title="Campaign Detail" subtitle="Unknown cluster" navItems={[...CENTRAL_NAV]}>
+        <section className="data-section">
+          <div className="empty-state">
+            No active campaign found for identifier &quot;{campaignId}&quot;.
+          </div>
+          <Link href="/campaigns" className="btn btn-secondary btn-sm" style={{ alignSelf: 'flex-start' }}>
+            ← Return to campaign center
+          </Link>
         </section>
       </AppShell>
     );
   }
 
   const members = Array.isArray(campaign.members) ? (campaign.members as CampaignMember[]) : [];
-  const tenantCount = Number(campaign.tenant_count || members.length || 0);
-  const emailCount = Number(campaign.email_count || members.length || 0);
-  const similarityValues = members.map(getSimilarity).filter((value): value is number => value !== null);
+  const tenantCount = typeof campaign.tenant_count === 'number'
+    ? campaign.tenant_count
+    : new Set(members.map((member) => member.tenant_id).filter((id) => id !== null && id !== undefined).map(String)).size;
+  const emailCount = Number(campaign.email_count ?? members.length);
+  const similarityValues = members.map(getSimilarity).filter((v): v is number => v !== null);
   const avgSimilarity = similarityValues.length
-    ? Math.round((similarityValues.reduce((total, value) => total + value, 0) / similarityValues.length) * 100)
-    : 0;
-  const organizations = [...new Set(members.map((member) => String(member.tenant_id || 'Unknown')))].join(', ');
-  const reasons = [...new Set(members.flatMap(getMemberReasons))];
-  const rankedMembers = [...members].sort((a, b) => (getSimilarity(b) ?? -1) - (getSimilarity(a) ?? -1));
+    ? Math.round((similarityValues.reduce((tot, v) => tot + v, 0) / similarityValues.length) * 100)
+    : null;
+
   const sharedSourceIps = uniqueValues(members, 'source_ip');
   const sharedSenderDomains = uniqueValues(members, 'sender_domain');
-  const summaryNarrative = getPlainEnglishSummary(campaign, members);
 
   return (
-    <AppShell title="Campaign Cluster Forensic Evidence" subtitle="Cross-tenant cluster correlation and similarity analysis" navItems={[...CENTRAL_NAV]}>
-      <div className="soc-subpage">
-        <Link href="/campaigns" className="report-back-link" style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}>
+    <AppShell title="Campaign Forensic Dossier" subtitle={campaignId} navItems={[...CENTRAL_NAV]}>
+      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '4px' }}>
+        <Link href="/campaigns" className="btn btn-ghost btn-sm" style={{ paddingLeft: 0 }}>
           ← Back to campaign center
         </Link>
+        <span className="badge badge-high">
+          {String(campaign.status || 'Not provided').toUpperCase()}
+        </span>
+      </div>
 
-        <section className="soc-card">
-          <div className="soc-card-header">
-            <div>
-              <div style={{ color: '#8ec5ff', fontSize: 11, letterSpacing: 1.2, textTransform: 'uppercase', fontWeight: 700 }}>Campaign Cluster</div>
-              <h2 style={{ margin: '6px 0 0', fontSize: 24 }}>{String(campaign.campaign_id || 'Unknown campaign')}</h2>
-            </div>
-            <span className="soc-badge high" style={{ fontSize: 12, padding: '6px 14px' }}>
-              {String(campaign.status || 'Active').toUpperCase()}
-            </span>
+      {/* KPI Stat Cards */}
+      <section className="stat-grid">
+        <div className="stat-card">
+          <span className="stat-card-label">Campaign ID</span>
+          <div style={{ fontSize: '14px', fontWeight: 700, fontFamily: 'var(--font-mono)', color: 'var(--accent)', marginTop: '4px' }}>
+            {campaignId}
           </div>
+          <span className="stat-card-detail">Correlation cluster key</span>
+        </div>
 
-          <div className="soc-card-body">
-            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(160px, 1fr))', gap: 14 }}>
-              <div className="soc-card" style={{ padding: 16, background: '#0a101d' }}>
-                <div style={{ color: '#8fa2bd', fontSize: 11, textTransform: 'uppercase', fontWeight: 700 }}>Affected Orgs</div>
-                <div style={{ fontSize: 24, fontWeight: 800, marginTop: 6, color: '#f1f5fb', fontFamily: '"JetBrains Mono", monospace' }}>{tenantCount}</div>
-              </div>
-              <div className="soc-card" style={{ padding: 16, background: '#0a101d' }}>
-                <div style={{ color: '#8fa2bd', fontSize: 11, textTransform: 'uppercase', fontWeight: 700 }}>Related Emails</div>
-                <div style={{ fontSize: 24, fontWeight: 800, marginTop: 6, color: '#f1f5fb', fontFamily: '"JetBrains Mono", monospace' }}>{emailCount}</div>
-              </div>
-              <div className="soc-card" style={{ padding: 16, background: '#0a101d' }}>
-                <div style={{ color: '#8fa2bd', fontSize: 11, textTransform: 'uppercase', fontWeight: 700 }}>Pattern Match</div>
-                <div style={{ fontSize: 24, fontWeight: 800, marginTop: 6, color: '#38bdf8', fontFamily: '"JetBrains Mono", monospace' }}>{similarityValues.length ? `${avgSimilarity}%` : 'N/A'}</div>
-              </div>
-              <div className="soc-card" style={{ padding: 16, background: '#0a101d' }}>
-                <div style={{ color: '#8fa2bd', fontSize: 11, textTransform: 'uppercase', fontWeight: 700 }}>First Detected</div>
-                <div style={{ fontSize: 14, fontWeight: 700, marginTop: 8, color: '#cbd7e6', fontFamily: '"JetBrains Mono", monospace' }}>{formatDetailDate(campaign.first_seen || 'Unknown')}</div>
-              </div>
-            </div>
-          </div>
-        </section>
+        <div className="stat-card">
+          <span className="stat-card-label">Correlated Messages</span>
+          <div className="stat-card-value">{emailCount}</div>
+          <span className="stat-card-detail">Inbound emails matched</span>
+        </div>
 
-        <section className="soc-card">
-          <div className="soc-card-header">
-            <h3 style={{ margin: 0, color: '#8ec5ff', fontSize: 14, textTransform: 'uppercase', letterSpacing: 1 }}>Correlation Evidence Summary</h3>
-          </div>
-          <div className="soc-card-body">
-          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(240px, 1fr))', gap: 12, marginBottom: 20 }}>
-            <div style={{ minWidth: 0, padding: 14, color: '#aabbd0', background: '#0b1523', border: '1px solid #243b5b', borderRadius: 10, fontSize: 12, lineHeight: 1.6, overflowWrap: 'anywhere' }}>
-              <h4 style={{ margin: '0 0 8px', color: '#dbeafe', fontSize: 13 }}>Why linked</h4>
-              {reasons.length ? (
-                <ul style={{ margin: 0, paddingLeft: 18 }}>{reasons.map((reason) => <li key={reason}>{reason}</li>)}</ul>
-              ) : (
-                <p>No match reasons were returned for this campaign.</p>
-              )}
-            </div>
-            <div style={{ minWidth: 0, padding: 14, color: '#aabbd0', background: '#0b1523', border: '1px solid #243b5b', borderRadius: 10, fontSize: 12, lineHeight: 1.6, overflowWrap: 'anywhere' }}>
-              <h4 style={{ margin: '0 0 8px', color: '#dbeafe', fontSize: 13 }}>Shared infrastructure</h4>
-              <p><strong>Source IPs:</strong> {sharedSourceIps.length ? sharedSourceIps.map(({ value, count }) => `${value} (${count} ${count === 1 ? 'member' : 'members'})`).join(', ') : 'None returned'}</p>
-              <p><strong>Sender domains:</strong> {sharedSenderDomains.length ? sharedSenderDomains.map(({ value, count }) => `${value} (${count} ${count === 1 ? 'member' : 'members'})`).join(', ') : 'None returned'}</p>
-            </div>
-          </div>
+        <div className="stat-card">
+          <span className="stat-card-label">Campuses Targeted</span>
+          <div className="stat-card-value">{tenantCount}</div>
+          <span className="stat-card-detail">Unique institution tenants</span>
+        </div>
+
+        <div className="stat-card">
+          <span className="stat-card-label">Pattern Match</span>
+          <div className="stat-card-value">{avgSimilarity === null ? '—' : `${avgSimilarity}%`}</div>
+          <span className="stat-card-detail">TLSH structural similarity</span>
         </div>
       </section>
 
-        <section className="soc-chart-panel">
-          <div className="soc-chart-header">
-            <div>
-              <h3>Member correlation strength</h3>
-              <p>Each related email’s similarity to this campaign (highest first).</p>
-            </div>
+      {/* Campaign Infrastructure Indicators */}
+      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(320px, 1fr))', gap: '12px' }}>
+        <section className="data-section">
+          <div className="section-title-wrap">
+            <h3 className="section-title">Shared Sender Domains ({sharedSenderDomains.length})</h3>
+            <span className="section-desc">Domains appearing across clustered messages</span>
           </div>
-          {rankedMembers.length ? (
-            <ol className="campaign-strength-list">
-              {rankedMembers.map((member, index) => {
-                const similarity = getSimilarity(member);
-                const percentage = similarity === null ? null : Math.round(similarity * 100);
-                return (
-                  <li key={`${member.tenant_id ?? 'tenant'}-${member.observed_at || index}-${index}`} className={index === 0 && similarity !== null ? 'is-strongest' : ''}>
-                    <span className="campaign-strength-rank">{index + 1}</span>
-                    <div className="campaign-strength-content">
-                      <div className="campaign-strength-heading">
-                        <strong>{String(member.tenant_id || 'Unknown tenant')}</strong>
-                        <span>{percentage === null ? 'Similarity unavailable' : `${percentage}%`}</span>
-                      </div>
-                      <div
-                        className="campaign-strength-track"
-                        role={percentage === null ? undefined : 'meter'}
-                        aria-label={`Similarity for ${String(member.tenant_id || 'unknown tenant')}`}
-                        aria-valuemin={percentage === null ? undefined : 0}
-                        aria-valuemax={percentage === null ? undefined : 100}
-                        aria-valuenow={percentage ?? undefined}
-                      >
-                        {percentage !== null && <span style={{ width: `${percentage}%` }} />}
-                      </div>
-                      <div className="campaign-strength-evidence">
-                        <span><strong>Match reasons:</strong> {getMemberReasons(member).join(' · ') || 'Not returned'}</span>
-                        <span><strong>Source IP:</strong> {member.source_ip || 'Unavailable'}</span>
-                        <span><strong>Sender domain:</strong> {member.sender_domain || 'Unavailable'}</span>
-                        <span><strong>Observed:</strong> {formatDetailDate(member.observed_at || 'Unknown')}</span>
-                      </div>
-                    </div>
-                  </li>
-                );
-              })}
-            </ol>
-          ) : (
-            <div className="soc-chart-empty">No member evidence is currently attached to this campaign.</div>
-          )}
-        </section>
-
-        <section className="soc-card">
-          <div className="soc-card-header">
-            <h3 style={{ margin: 0, color: '#8ec5ff', fontSize: 14, textTransform: 'uppercase', letterSpacing: 1 }}>What this campaign means</h3>
-          </div>
-          <div className="soc-card-body">
-            <div style={{ display: 'grid', gap: 12, color: '#dbeafe', lineHeight: 1.6, fontSize: 13 }}>
-              <div><strong>What happened:</strong> Similar malicious messages were seen across {tenantCount} organizations, indicating a likely shared attack pattern.</div>
-              <div><strong>Why they are linked:</strong> {reasons.length ? reasons.map((reason) => reason.replace(/_/g, ' ')).join(', ') : 'No match reasons were returned.'}</div>
-              <div><strong>Affected organizations:</strong> {organizations || 'Unavailable'}</div>
-              <div><strong>Time window:</strong> {formatDetailDate(campaign.first_seen || 'Unknown')} to {formatDetailDate(campaign.last_seen || 'Unknown')}</div>
-              <div><strong>Assessment:</strong> {summaryNarrative}</div>
-            </div>
+          <div className="report-code-block">
+            {sharedSenderDomains.length > 0
+              ? sharedSenderDomains.map((d) => `${d.value} (${d.count}x)`).join('\n')
+              : 'None recorded'}
           </div>
         </section>
 
-        <section className="soc-card">
-          <div className="soc-card-header">
-            <h3 style={{ margin: 0, color: '#8ec5ff', fontSize: 14, textTransform: 'uppercase', letterSpacing: 1 }}>Member Evidence Matrix</h3>
+        <section className="data-section">
+          <div className="section-title-wrap">
+            <h3 className="section-title">Shared Source IPs ({sharedSourceIps.length})</h3>
+            <span className="section-desc">Host infrastructure observed connecting to mail nodes</span>
           </div>
-          <div className="soc-card-body">
-            {members.length === 0 ? (
-              <div style={{ color: '#9fb5d8' }}>No member evidence is currently attached to this campaign.</div>
-            ) : (
-              <div style={{ display: 'grid', gap: 12 }}>
-                {rankedMembers.map((member, index) => (
-                  <div key={`${member.tenant_id ?? 'tenant'}-${member.observed_at || index}-${index}`} className={`evidence-gauge-card ${index === 0 && getSimilarity(member) !== null ? 'is-strongest' : ''}`}>
-                    <div style={{ display: 'flex', justifyContent: 'space-between', flexWrap: 'wrap', gap: 12, alignItems: 'center' }}>
-                      <div style={{ fontWeight: 700 }}>{index === 0 && getSimilarity(member) !== null ? 'Strongest match · ' : ''}{String(member.tenant_id || 'Unknown tenant')}</div>
-                      <div className="similarity-gauge" style={{ background: `conic-gradient(#63c6ff ${Math.round((getSimilarity(member) ?? 0) * 100)}%, #20364f 0)` }}><div><strong>{getSimilarity(member) === null ? 'N/A' : `${Math.round((getSimilarity(member) ?? 0) * 100)}%`}</strong><span>match</span></div></div>
-                    </div>
-                    <div style={{ marginTop: 8, color: '#9fb5d8', fontSize: 13 }}>
-                      <div>Correlation distance: {member.correlation_distance ?? 'N/A'} · Observed: {formatDetailDate(member.observed_at || 'Unknown')}</div>
-                      <div style={{ marginTop: 5 }}>Evidence: {getMemberReasons(member).join(' · ') || 'Not returned'}</div>
-                      <div style={{ marginTop: 5 }}>Sender domain: {member.sender_domain || 'Unavailable'} · Source infrastructure: {member.source_ip || 'Unavailable'}</div>
-                    </div>
-                  </div>
-                ))}
-              </div>
-            )}
+          <div className="report-code-block">
+            {sharedSourceIps.length > 0
+              ? sharedSourceIps.map((ip) => `${ip.value} (${ip.count}x)`).join('\n')
+              : 'None recorded'}
           </div>
         </section>
       </div>
+
+      {/* Member Messages Table */}
+      <section className="data-section">
+        <div className="section-header">
+          <div className="section-title-wrap">
+            <h2 className="section-title">Cluster Members & Evidence Signals ({members.length})</h2>
+            <span className="section-desc">Institutional emails linked to this campaign group with individual match reasons.</span>
+          </div>
+        </div>
+
+        {members.length === 0 ? (
+          <div className="empty-state">No individual member records available for this cluster.</div>
+        ) : (
+          <div className="data-table-wrap">
+            <table className="data-table">
+              <thead>
+                <tr>
+                  <th style={{ width: '130px' }}>Observed</th>
+                  <th style={{ width: '110px' }}>Tenant Node</th>
+                  <th>Subject / Identifier</th>
+                  <th style={{ width: '150px' }}>Sender Domain</th>
+                  <th style={{ width: '130px' }}>Source IP</th>
+                  <th style={{ width: '90px' }}>Similarity</th>
+                  <th>Match Reasons</th>
+                </tr>
+              </thead>
+              <tbody>
+                {members.map((m, idx) => {
+                  const sim = getSimilarity(m);
+                  const reasons = getMemberReasons(m);
+                  return (
+                    <tr key={idx}>
+                      <td style={{ fontFamily: 'var(--font-mono)', fontSize: '11px', color: 'var(--text-muted)' }}>
+                        {formatDetailDate(m.observed_at)}
+                      </td>
+                      <td style={{ fontFamily: 'var(--font-mono)', fontSize: '11px', color: 'var(--accent)' }}>
+                        {String(m.tenant_id ?? 'Not provided')}
+                      </td>
+                      <td style={{ fontWeight: 500, color: 'var(--text-primary)' }}>
+                        {m.subject || m.message_id || 'Identifier unavailable'}
+                      </td>
+                      <td style={{ fontFamily: 'var(--font-mono)', fontSize: '11px', color: 'var(--text-secondary)' }}>
+                        {m.sender_domain || 'Omitted'}
+                      </td>
+                      <td style={{ fontFamily: 'var(--font-mono)', fontSize: '11px', color: 'var(--text-muted)' }}>
+                        {m.source_ip || 'Omitted'}
+                      </td>
+                      <td style={{ fontFamily: 'var(--font-mono)', fontWeight: 600 }}>
+                        {sim !== null ? `${Math.round(sim * 100)}%` : '—'}
+                      </td>
+                      <td>
+                        <div style={{ display: 'flex', flexWrap: 'wrap', gap: 4 }}>
+                          {reasons.length > 0 ? (
+                            reasons.map((r) => <span className="signal-tag" key={r}>{r}</span>)
+                          ) : (
+                            <span style={{ color: 'var(--text-muted)', fontSize: '11px' }}>No match reason recorded</span>
+                          )}
+                        </div>
+                      </td>
+                    </tr>
+                  );
+                })}
+              </tbody>
+            </table>
+          </div>
+        )}
+      </section>
     </AppShell>
   );
 }
